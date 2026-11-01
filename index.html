@@ -10,7 +10,7 @@
 </style></head><body><div id="map"></div>
 <section class="panel"><div class="row"><span class="title">Бородянка · вулиці</span><button type="button" class="mode-button" id="quickAddress">Адреси: ВИМК</button><button type="button" id="quickPoints">Знайдені адреси: …</button><button id="toggle">Налаштування</button></div>
 <p class="status" id="status" role="status">Завантажуємо локальні OSM-дані…</p>
-<div class="body" id="body" hidden><label><input type="checkbox" id="addressMode"> Діагностика адрес OSM (зелений / жовтий / рожевий)</label><div id="addressStats" class="small"></div><label><input type="checkbox" id="showAddressPoints"> Показати окремі адресні точки OSM</label><div id="pointStats" class="small">Адресні точки: очікується імпорт.</div><label><input type="checkbox" id="showBuildings" checked> Показувати будівлі при наближенні (zoom 16+)</label><label><input type="checkbox" id="showMask" checked> Ізолювати Бородянку по контуру</label>
+<div class="body" id="body" hidden><label>Картографічна підкладка <select id="basemap" style="width:100%;padding:8px;background:#263b56;color:#fff;border:1px solid #48617f;border-radius:8px"><option value="osm">OpenStreetMap</option><option value="visicom">Visicom</option></select></label><label><input type="checkbox" id="compareFootprints"> Порівнювати контури OSM з підкладкою Visicom</label><p class="small" id="visicomStatus">Visicom Tiles: доступ залежить від авторизації/домену. Підкладка не надає інтерактивні полігони будівель.</p><label><input type="checkbox" id="addressMode"> Діагностика адрес OSM (зелений / жовтий / рожевий)</label><div id="addressStats" class="small"></div><label><input type="checkbox" id="showAddressPoints"> Показати окремі адресні точки OSM</label><div id="pointStats" class="small">Адресні точки: очікується імпорт.</div><label><input type="checkbox" id="showBuildings" checked> Показувати будівлі при наближенні (zoom 16+)</label><label><input type="checkbox" id="showMask" checked> Ізолювати Бородянку по контуру</label>
 <div class="legend"><span><i class="swatch" style="background:#ffcc20"></i>Демо: є світло</span><span><i class="swatch" style="background:#3366bf"></i>Демо: планове</span><span><i class="swatch" style="background:#a13d43"></i>Демо: аварійне</span></div>
 <label>Товщина: <output id="widthOut">3</output> px <input id="width" type="range" min="1" max="7" step=".5" value="3"></label>
 <label>Відступ: <output id="offsetOut">5</output> px <input id="offset" type="range" min="2" max="12" step="1" value="5"></label>
@@ -21,7 +21,22 @@
 <script>
 const map=L.map('map',{preferCanvas:true,zoomControl:false}).setView([50.648935,29.9208565],14);
 L.control.zoom({position:'bottomright'}).addTo(map);
-L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
+const osmTiles=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
+const visicomTiles=L.tileLayer('https://tms{s}.visicom.ua/2.0.0/planet3/base/{z}/{x}/{y}.png',{maxZoom:19,subdomains:'123',tms:true,attribution:'Map data &copy; <a href="https://api.visicom.ua/">Visicom</a>'});
+const baseMapSelect=document.getElementById('basemap');
+const compareFootprints=document.getElementById('compareFootprints');
+const visicomStatus=document.getElementById('visicomStatus');
+let visicomErrors=0;
+visicomTiles.on('tileerror',()=>{visicomErrors++;if(visicomErrors===1)visicomStatus.textContent='Не вдалося завантажити Visicom Tiles. Може знадобитися ключ або дозвіл для домену (Referer).';});
+baseMapSelect.addEventListener('change',()=>{
+const showVisicom=baseMapSelect.value==='visicom';
+map.removeLayer(showVisicom?osmTiles:visicomTiles);
+(showVisicom?visicomTiles:osmTiles).addTo(map).bringToBack();
+visicomStatus.textContent=showVisicom?'Visicom увімкнено. Якщо тайли не показуються або мають водяний знак, потрібна авторизація Visicom.':'OSM увімкнено.';
+visicomErrors=0;
+scheduleRender();
+});
+compareFootprints.addEventListener('change',()=>{if(compareFootprints.checked){baseMapSelect.value='visicom';baseMapSelect.dispatchEvent(new Event('change'));document.getElementById('showBuildings').checked=true;}scheduleRender()});
 const status=document.getElementById('status');const body=document.getElementById('body');
 document.getElementById('toggle').onclick=()=>{body.hidden=!body.hidden};
 const addressMode=document.getElementById('addressMode');const quickAddress=document.getElementById('quickAddress');function setAddressMode(value){addressMode.checked=value;if(value)document.getElementById('showBuildings').checked=true;quickAddress.textContent=value?'Адреси: УВІМК':'Адреси: ВИМК';quickAddress.classList.toggle('active',value);scheduleRender()}quickAddress.addEventListener('click',()=>setAddressMode(!addressMode.checked));addressMode.addEventListener('change',()=>setAddressMode(addressMode.checked));const addressStats=document.getElementById('addressStats');const inputs=['width','offset','centerline'].map(id=>document.getElementById(id));
@@ -48,8 +63,8 @@ const masks=[outer,...pieces.flatMap(p=>p.map(r=>r.map(([lon,lat])=>[lat,lon])))
 L.polygon(masks,{stroke:false,fillColor:'#080d16',fillOpacity:1,fillRule:'evenodd',interactive:false}).addTo(maskGroup);
 L.geoJSON(boundaryData,{style:{color:'#64758f',weight:1.4,fillOpacity:0,interactive:false}}).addTo(maskGroup);
 }
-if(buildingData && (addressMode.checked || map.getZoom()>=16) && document.getElementById('showBuildings').checked){
-L.geoJSON(buildingData,{style:f=>{const p=f.properties,complete=!!p.street&&!!p.housenumber,partial=!!p.street||!!p.housenumber,debug=addressMode.checked;return {color:debug?(complete?'#86efac':partial?'#fde047':'#f9a8d4'):'#7789a7',weight:debug?1.2:.6,fillColor:debug?(complete?'#16a34a':partial?'#eab308':'#db2777'):'#28394b',fillOpacity:debug?0.95:.65}},onEachFeature:(f,l)=>{
+if(buildingData && (addressMode.checked || compareFootprints.checked || map.getZoom()>=16) && document.getElementById('showBuildings').checked){
+L.geoJSON(buildingData,{style:f=>{const p=f.properties,complete=!!p.street&&!!p.housenumber,partial=!!p.street||!!p.housenumber,debug=addressMode.checked,compare=compareFootprints.checked&&!debug;return compare?{color:'#00ffff',weight:1.5,fillColor:'#00ffff',fillOpacity:0.08}:{color:debug?(complete?'#86efac':partial?'#fde047':'#f9a8d4'):'#7789a7',weight:debug?1.2:.6,fillColor:debug?(complete?'#16a34a':partial?'#eab308':'#db2777'):'#28394b',fillOpacity:debug?0.95:.65}},onEachFeature:(f,l)=>{
 const p=f.properties;
 const div=document.createElement('div');
 const bold=document.createElement('strong');bold.textContent=[p.street,p.housenumber].filter(Boolean).join(', ')||'Будівля без адреси';
