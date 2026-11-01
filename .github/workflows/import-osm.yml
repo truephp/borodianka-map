@@ -6,20 +6,20 @@ permissions:
 jobs:
   import:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Import validated boundary, roads and buildings
-        run: node scripts/fetch-osm.mjs
-      - name: Commit updated geometry
+      - name: Import address nodes using existing boundary
+        run: node scripts/fetch-address-points.mjs
+      - name: Commit address points
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/boundary.geojson data/roads.geojson data/buildings.geojson data/address-points.geojson
+          git add data/address-points.geojson
           if ! git diff --cached --quiet; then
-            git commit -m "data: update Borodianka boundary, streets and buildings"
+            git commit -m "data: update Borodianka OSM address points"
             git push
           fi
