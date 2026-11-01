@@ -10,7 +10,7 @@
 </style></head><body><div id="map"></div>
 <section class="panel"><div class="row"><span class="title">Бородянка · вулиці</span><button id="toggle">Налаштування</button></div>
 <p class="status" id="status" role="status">Завантажуємо локальні OSM-дані…</p>
-<div class="body" id="body" hidden><label><input type="checkbox" id="showBuildings" checked> Показувати будівлі при наближенні (zoom 16+)</label><label><input type="checkbox" id="showMask" checked> Ізолювати Бородянку по контуру</label>
+<div class="body" id="body" hidden><label><input type="checkbox" id="addressMode"> Діагностика адрес OSM</label><div id="addressStats" class="small"></div><label><input type="checkbox" id="showBuildings" checked> Показувати будівлі при наближенні (zoom 16+)</label><label><input type="checkbox" id="showMask" checked> Ізолювати Бородянку по контуру</label>
 <div class="legend"><span><i class="swatch" style="background:#ffcc20"></i>Демо: є світло</span><span><i class="swatch" style="background:#3366bf"></i>Демо: планове</span><span><i class="swatch" style="background:#a13d43"></i>Демо: аварійне</span></div>
 <label>Товщина: <output id="widthOut">3</output> px <input id="width" type="range" min="1" max="7" step=".5" value="3"></label>
 <label>Відступ: <output id="offsetOut">5</output> px <input id="offset" type="range" min="2" max="12" step="1" value="5"></label>
@@ -24,7 +24,7 @@ L.control.zoom({position:'bottomright'}).addTo(map);
 L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
 const status=document.getElementById('status');const body=document.getElementById('body');
 document.getElementById('toggle').onclick=()=>{body.hidden=!body.hidden};
-const inputs=['width','offset','centerline'].map(id=>document.getElementById(id));
+const addressMode=document.getElementById('addressMode');addressMode.addEventListener('change',scheduleRender);const addressStats=document.getElementById('addressStats');const inputs=['width','offset','centerline'].map(id=>document.getElementById(id));
 const group=L.layerGroup().addTo(map);const buildingsGroup=L.layerGroup().addTo(map);const maskGroup=L.layerGroup().addTo(map);let boundaryData=null,buildingData=null;
 let features=[];
 function offsetCoords(latlngs,offset){let points=latlngs.map(p=>map.latLngToLayerPoint(p));return points.map((p,i)=>{let prev=points[Math.max(0,i-1)],next=points[Math.min(points.length-1,i+1)];let dx=next.x-prev.x,dy=next.y-prev.y,len=Math.hypot(dx,dy)||1;return map.layerPointToLatLng(L.point(p.x-dy/len*offset,p.y+dx/len*offset))})}
@@ -45,7 +45,7 @@ L.polygon(masks,{stroke:false,fillColor:'#080d16',fillOpacity:1,fillRule:'evenod
 L.geoJSON(boundaryData,{style:{color:'#64758f',weight:1.4,fillOpacity:0,interactive:false}}).addTo(maskGroup);
 }
 if(buildingData && map.getZoom()>=16 && document.getElementById('showBuildings').checked){
-L.geoJSON(buildingData,{style:{color:'#7789a7',weight:.6,fillColor:'#28394b',fillOpacity:.65},onEachFeature:(f,l)=>{
+L.geoJSON(buildingData,{style:f=>{const p=f.properties,complete=!!p.street&&!!p.housenumber,partial=!!p.street||!!p.housenumber,debug=addressMode.checked;return {color:debug?(complete?'#22c55e':partial?'#eab308':'#64748b'):'#7789a7',weight:debug?1:.6,fillColor:debug?(complete?'#16a34a':partial?'#eab308':'#475569'):'#28394b',fillOpacity:debug?.85:.65}},onEachFeature:(f,l)=>{
 const p=f.properties;
 const div=document.createElement('div');
 const bold=document.createElement('strong');bold.textContent=[p.street,p.housenumber].filter(Boolean).join(', ')||'Будівля без адреси';
@@ -54,5 +54,5 @@ div.append(bold,document.createElement('br'),document.createTextNode('OSM way '+
 }}
 let renderHandle;function scheduleRender(){cancelAnimationFrame(renderHandle);renderHandle=requestAnimationFrame(()=>{render();renderArea()})}
 inputs.forEach(el=>el.addEventListener('input',scheduleRender));['showBuildings','showMask'].forEach(id=>document.getElementById(id).addEventListener('change',scheduleRender));map.on('zoomend',scheduleRender);
-Promise.all([fetch('./data/boundary.geojson').then(r=>r.ok?r.json():null).catch(()=>null),fetch('./data/buildings.geojson').then(r=>r.ok?r.json():null).catch(()=>null)]).then(([b,build])=>{boundaryData=b;buildingData=build;renderArea();if(b){const bounds=L.geoJSON(b).getBounds();if(bounds.isValid())map.fitBounds(bounds,{maxZoom:14,padding:[16,16]})}if(features.length)render();});fetch('./data/roads.geojson',{cache:'no-cache'}).then(r=>{if(!r.ok)throw Error('HTTP '+r.status+'; спочатку запусти workflow Import OSM data');return r.json()}).then(data=>{features=(data.features||[]).filter(f=>f.geometry?.type==='LineString');status.textContent='Завантажено '+features.length+' сегментів вулиць'+(buildingData?' · '+buildingData.features.length+' будівель':'')+'. Кольори демонстраційні.';if(!features.length)throw Error('Файл доріг порожній');render();const bounds=L.geoJSON(data).getBounds();if(bounds.isValid() && !boundaryData)map.fitBounds(bounds.pad(.04),{maxZoom:14})}).catch(e=>{status.textContent='Дороги не завантажено: '+e.message;status.style.color='#ff9c9c';body.hidden=false});
+Promise.all([fetch('./data/boundary.geojson').then(r=>r.ok?r.json():null).catch(()=>null),fetch('./data/buildings.geojson').then(r=>r.ok?r.json():null).catch(()=>null)]).then(([b,build])=>{boundaryData=b;buildingData=build;if(build){const total=build.features.length,complete=build.features.filter(f=>f.properties.street&&f.properties.housenumber).length,partial=build.features.filter(f=>(f.properties.street||f.properties.housenumber)&&!(f.properties.street&&f.properties.housenumber)).length;addressStats.textContent='Адресні теги будівель: '+complete+' повних, '+partial+' часткових, '+(total-complete-partial)+' без адреси. Зелений / жовтий / сірий.';}renderArea();if(b){const bounds=L.geoJSON(b).getBounds();if(bounds.isValid())map.fitBounds(bounds,{maxZoom:14,padding:[16,16]})}if(features.length)render();});fetch('./data/roads.geojson',{cache:'no-cache'}).then(r=>{if(!r.ok)throw Error('HTTP '+r.status+'; спочатку запусти workflow Import OSM data');return r.json()}).then(data=>{features=(data.features||[]).filter(f=>f.geometry?.type==='LineString');status.textContent='Завантажено '+features.length+' сегментів вулиць'+(buildingData?' · '+buildingData.features.length+' будівель':'')+'. Кольори демонстраційні.';if(!features.length)throw Error('Файл доріг порожній');render();const bounds=L.geoJSON(data).getBounds();if(bounds.isValid() && !boundaryData)map.fitBounds(bounds.pad(.04),{maxZoom:14})}).catch(e=>{status.textContent='Дороги не завантажено: '+e.message;status.style.color='#ff9c9c';body.hidden=false});
 </script></body></html>
