@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="uk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Бородянка — карта вулиць</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+*{box-sizing:border-box}html,body,#map{height:100%;margin:0}body{font:14px system-ui,sans-serif;background:#0b111d;color:#e5ecf9}#map{background:#0b111d}
+.leaflet-tile{filter:grayscale(1) brightness(.47) contrast(1.15)}.leaflet-container{background:#0b111d}
+.panel{position:absolute;top:12px;left:12px;z-index:1000;background:#111a2bee;border:1px solid #394860;border-radius:14px;padding:13px;max-width:min(450px,calc(100vw - 24px));box-shadow:0 8px 25px #0008}
+.row{display:flex;gap:10px;align-items:center;justify-content:space-between}.title{font-size:18px;font-weight:700}.panel button{background:#263b56;color:white;border:1px solid #48617f;border-radius:8px;padding:8px;cursor:pointer}.body{margin-top:10px}.body[hidden]{display:none}label{display:block;margin:12px 0}input[type=range]{width:100%}.status{font-size:13px;color:#afc1d9;max-width:380px;line-height:1.4}.legend{display:flex;gap:10px;flex-wrap:wrap;margin:9px 0}.swatch{display:inline-block;width:20px;height:5px;border-radius:5px;vertical-align:middle;margin-right:4px}.small{font-size:12px;color:#9bb0ca}.leaflet-control-attribution{font-size:10px}
+</style></head><body><div id="map"></div>
+<section class="panel"><div class="row"><span class="title">Бородянка · вулиці</span><button id="toggle">Налаштування</button></div>
+<p class="status" id="status" role="status">Завантажуємо локальні OSM-дані…</p>
+<div class="body" id="body" hidden>
+<div class="legend"><span><i class="swatch" style="background:#ffcc20"></i>Демо: є світло</span><span><i class="swatch" style="background:#3366bf"></i>Демо: планове</span><span><i class="swatch" style="background:#a13d43"></i>Демо: аварійне</span></div>
+<label>Товщина: <output id="widthOut">3</output> px <input id="width" type="range" min="1" max="7" step=".5" value="3"></label>
+<label>Відступ: <output id="offsetOut">5</output> px <input id="offset" type="range" min="2" max="12" step="1" value="5"></label>
+<label><input type="checkbox" id="centerline"> Показати вісь дороги</label>
+<p class="small">Тест двох незалежних ліній для кожного сегмента OSM. Кольори вигадані для перевірки читабельності, не є даними ДТЕК. Геометрія поки обмежена робочим прямокутником, а не адміністративною межею.</p>
+</div></section>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map=L.map('map',{preferCanvas:true,zoomControl:false}).setView([50.648935,29.9208565],14);
+L.control.zoom({position:'bottomright'}).addTo(map);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
+const status=document.getElementById('status');const body=document.getElementById('body');
+document.getElementById('toggle').onclick=()=>{body.hidden=!body.hidden};
+const inputs=['width','offset','centerline'].map(id=>document.getElementById(id));
+const group=L.layerGroup().addTo(map);
+let features=[];
+function offsetCoords(latlngs,offset){let points=latlngs.map(p=>map.latLngToLayerPoint(p));return points.map((p,i)=>{let prev=points[Math.max(0,i-1)],next=points[Math.min(points.length-1,i+1)];let dx=next.x-prev.x,dy=next.y-prev.y,len=Math.hypot(dx,dy)||1;return map.layerPointToLatLng(L.point(p.x-dy/len*offset,p.y+dx/len*offset))})}
+function color(id,side){const c=['#ffcc20','#3366bf','#a13d43'];let n=0;for(const ch of String(id))n=(n*33+ch.charCodeAt(0))>>>0;return c[(n+(side==='R'?1:0))%3]}
+function render(){group.clearLayers();let width=Number(inputs[0].value),offset=Number(inputs[1].value);document.getElementById('widthOut').textContent=width;document.getElementById('offsetOut').textContent=offset;
+for(const feature of features){const line=feature.geometry.coordinates.map(p=>L.latLng(p[1],p[0]));if(line.length<2)continue;let name=feature.properties.name||'Без назви',id=feature.properties.id;
+if(inputs[2].checked)L.polyline(line,{color:'#708296',weight:1,interactive:false}).addTo(group);
+for(const [side,sign] of [['L',-1],['R',1]])L.polyline(offsetCoords(line,sign*offset),{color:color(id,side),weight:width,opacity:.93}).bindPopup('OSM way '+id+' · '+name+' · сторона '+side+'<br>Демонстраційний колір').addTo(group)
+}}
+let renderHandle;function scheduleRender(){cancelAnimationFrame(renderHandle);renderHandle=requestAnimationFrame(render)}
+inputs.forEach(el=>el.addEventListener('input',scheduleRender));map.on('zoomend',scheduleRender);
+fetch('./data/roads.geojson',{cache:'no-cache'}).then(r=>{if(!r.ok)throw Error('HTTP '+r.status+'; спочатку запусти workflow Import OSM data');return r.json()}).then(data=>{features=(data.features||[]).filter(f=>f.geometry?.type==='LineString');status.textContent='Завантажено '+features.length+' сегментів OSM. Кольори демонстраційні.';if(!features.length)throw Error('Файл доріг порожній');render();const bounds=L.geoJSON(data).getBounds();if(bounds.isValid())map.fitBounds(bounds.pad(.04),{maxZoom:14})}).catch(e=>{status.textContent='Дороги не завантажено: '+e.message;status.style.color='#ff9c9c';body.hidden=false});
+</script></body></html>
