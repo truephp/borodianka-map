@@ -37,6 +37,9 @@ const roads=(await queryOSM(roadQ)).filter(el=>el.type==='way'&&el.geometry?.len
 if(roads.length<30)throw Error('Suspiciously few roads: '+roads.length);
 const buildings=(await queryOSM(buildingsQ)).filter(el=>el.type==='way').map(el=>{const geometry=geometryOfWay(el);if(!geometry||!inside(centroid(geometry),area))return null;return {type:'Feature',properties:{id:el.id,building:el.tags?.building||'yes',street:el.tags?.['addr:street']||'',housenumber:el.tags?.['addr:housenumber']||''},geometry}}).filter(Boolean);
 if(buildings.length<100)throw Error('Suspiciously few buildings: '+buildings.length);
+const addressQ='[out:json][timeout:120];node["addr:housenumber"]'+areaQuery+';out body;';
+const addressNodes=(await queryOSM(addressQ)).filter(el=>el.type==='node'&&Number.isFinite(el.lat)&&Number.isFinite(el.lon)&&inside([el.lon,el.lat],area)).map(el=>({type:'Feature',properties:{id:el.id,street:el.tags?.['addr:street']||'',housenumber:el.tags?.['addr:housenumber']||'',unit:el.tags?.['addr:unit']||''},geometry:{type:'Point',coordinates:[el.lon,el.lat]}}));
+console.log('Found',addressNodes.length,'standalone address nodes');
 await mkdir('data',{recursive:true});
-await Promise.all([writeFile('data/boundary.geojson',JSON.stringify(featureCollection([border]))+'\n'),writeFile('data/roads.geojson',JSON.stringify(featureCollection(roads))+'\n'),writeFile('data/buildings.geojson',JSON.stringify(featureCollection(buildings))+'\n')]);
-console.log('Saved',roads.length,'roads and',buildings.length,'buildings');
+await Promise.all([writeFile('data/boundary.geojson',JSON.stringify(featureCollection([border]))+'\n'),writeFile('data/roads.geojson',JSON.stringify(featureCollection(roads))+'\n'),writeFile('data/buildings.geojson',JSON.stringify(featureCollection(buildings))+'\n'),writeFile('data/address-points.geojson',JSON.stringify(featureCollection(addressNodes))+'\n')]);
+console.log('Saved',roads.length,'roads and',buildings.length,'buildings,',addressNodes.length,'address points');
