@@ -15,12 +15,13 @@ jobs:
       - name: Test 60 OSM buildings and prepare private comparison JSON
         env:
           VISICOM_API_KEY: ${{ secrets.VISICOM_API_KEY }}
-          VISICOM_EXPORT_PATH: ${{ runner.temp }}/visicom-private/visicom-matches.json
+          VISICOM_EXPORT_PATH: ${{ runner.temp }}/visicom-private/visicom-matches.enc.json
+          VISICOM_EXPORT_PASSWORD: ${{ secrets.VISICOM_EXPORT_PASSWORD }}
         run: node scripts/test-visicom.mjs
       - name: Upload comparison JSON as short-lived workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: visicom-private-comparison
-          path: ${{ runner.temp }}/visicom-private/visicom-matches.json
+          path: ${{ runner.temp }}/visicom-private/visicom-matches.enc.json
           if-no-files-found: error
           retention-days: 1
