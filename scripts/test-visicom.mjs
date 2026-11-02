@@ -48,7 +48,7 @@ for(const [i,f] of selected.entries()){
  for(const [k,v] of Object.entries({categories:'adr_address',near:lon+','+lat,radius:'50',limit:'10',order:'distance',key}))
   url.searchParams.set(k,v);
  const tag=f.properties.street&&f.properties.housenumber?'tagged':'untagged';
- const row={osmId:f.properties.id,candidates:[]};exportRows.push(row);
+ const row={osmId:f.properties.id,status:'failed',candidates:[]};exportRows.push(row);
  stats.checked++;
  try{
   const r=await fetch(url,{signal:AbortSignal.timeout(20000)});
@@ -67,6 +67,7 @@ for(const [i,f] of selected.entries()){
    continue;
   }
   if(kind==='single-feature')stats.single++;
+  row.status='ok';
   if(!items.length){stats.empty++;console.log('Sample '+(i+1)+' ['+tag+']: empty ('+kind+')');continue;}
   stats.candidateLists++;
   let matchStatus='not-comparable';
