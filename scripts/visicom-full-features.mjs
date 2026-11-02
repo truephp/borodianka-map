@@ -12,7 +12,7 @@ const index=decrypt(JSON.parse(await readFile(process.env.VISICOM_INDEX_FILE,'ut
 if(index.type!=='VisicomAddressIndex'||!index.metadata?.completeDiscovery||!Array.isArray(index.entries))throw Error('Incomplete or invalid address index');
 const output=process.env.VISICOM_EXPORT_PATH,checkpoint=process.env.VISICOM_CHECKPOINT_PATH;
 let state={done:{},features:[],nonPolygons:[],failures:[]};
-if(process.env.VISICOM_RESUME_FILE){state=decrypt(JSON.parse(await readFile(process.env.VISICOM_RESUME_FILE,'utf8')));if(!state.done||!Array.isArray(state.features))throw Error('Invalid checkpoint');}
+if(process.env.VISICOM_RESUME_FILE){state=decrypt(JSON.parse(await readFile(process.env.VISICOM_RESUME_FILE,'utf8')));if(!state.done||!Array.isArray(state.features))throw Error('Invalid checkpoint');state.failures=[];}
 const seen=new Set(state.features.map(x=>String(x.properties?.visicomId)));
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 let processed=0;
