@@ -1,0 +1,18 @@
+name: Test Visicom Data API
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Test 20 OSM buildings (read-only, aggregate logs)
+        env:
+          VISICOM_API_KEY: ${{ secrets.VISICOM_API_KEY }}
+        run: node scripts/test-visicom.mjs
