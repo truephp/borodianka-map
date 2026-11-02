@@ -2,6 +2,7 @@
 // Diagnostic only. No Visicom response data is persisted or published.
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import {dirname} from 'node:path';
+import {randomBytes,pbkdf2Sync,createCipheriv} from 'node:crypto';
 
 const key=process.env.VISICOM_API_KEY;
 if(!key)throw Error('Missing VISICOM_API_KEY GitHub Actions secret');
@@ -113,10 +114,18 @@ for(const [i,f] of selected.entries()){
 console.log('SUMMARY '+JSON.stringify(stats));console.log('NOTE: high confidence describes spatial isolation only, not verified address ownership.');
 if(stats.candidateLists===0)process.exitCode=1;
 
-// Export ONLY sanitized address candidates, never API URLs/keys/raw responses.
+// Encrypt sanitized diagnostic data before upload; no plaintext artifact.
 if(process.env.VISICOM_EXPORT_PATH){
+ const password=process.env.VISICOM_EXPORT_PASSWORD;
+ if(!password||password.length<12)throw Error('Missing VISICOM_EXPORT_PASSWORD secret (minimum 12 characters)');
+ const salt=randomBytes(16),iv=randomBytes(12);
+ const aesKey=pbkdf2Sync(password,salt,210000,32,'sha256');
+ const cipher=createCipheriv('aes-256-gcm',aesKey,iv);
+ const plaintext=Buffer.from(JSON.stringify(exportRows));
+ const encrypted=Buffer.concat([cipher.update(plaintext),cipher.final()]);
+ const envelope={version:1,kdf:'PBKDF2-SHA256',iterations:210000,salt:salt.toString('base64'),iv:iv.toString('base64'),data:Buffer.concat([encrypted,cipher.getAuthTag()]).toString('base64')};
  const target=process.env.VISICOM_EXPORT_PATH;
  await mkdir(dirname(target),{recursive:true});
- await writeFile(target,JSON.stringify(exportRows,null,2)+'\n',{mode:0o600});
- console.log('Private comparison export prepared: '+exportRows.length+' OSM records (not committed or deployed).');
+ await writeFile(target,JSON.stringify(envelope)+'\n',{mode:0o600});
+ console.log('Encrypted Visicom comparison prepared: '+exportRows.length+' records. No plaintext exported.');
 }
