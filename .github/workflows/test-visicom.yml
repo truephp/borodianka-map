@@ -6,13 +6,21 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Test 20 OSM buildings (read-only, aggregate logs)
+      - name: Test 60 OSM buildings and prepare private comparison JSON
         env:
           VISICOM_API_KEY: ${{ secrets.VISICOM_API_KEY }}
+          VISICOM_EXPORT_PATH: ${{ runner.temp }}/visicom-private/visicom-matches.json
         run: node scripts/test-visicom.mjs
+      - name: Upload comparison JSON as short-lived workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: visicom-private-comparison
+          path: ${{ runner.temp }}/visicom-private/visicom-matches.json
+          if-no-files-found: error
+          retention-days: 1
