@@ -171,7 +171,7 @@ Promise.all([fetch('./data/boundary.geojson').then(r=>r.ok?r.json():null).catch(
   {title:'Підкладка',ids:['basemap','compareFootprints','visicomStatus']},
   {title:'Будівлі',ids:['showBuildings','showMask','showVisicomPolygons']},
   {title:'Адреси',ids:['addressMode','addressStats','showAddressPoints','pointStats']},
-  {title:'Діагностика',ids:['inspectBuildings','visicomColorMode','visicomLegend','visicomImport','visicomPassword','visicomImportStatus']},
+  {title:'Діагностика',ids:['inspectBuildings','visicomColorMode','visicomLegend','visicomImport','visicomPassword','visicomImportStatus','showGeometryMatches','geometryStats','iouHigh','iouMedium','iouLow','overlapThreshold','clipVisicomBoundary','clearVisicomPolygons']},
   {title:'Лінії вулиць',ids:['width','offset','centerline']}
  ];
  const parent=document.getElementById('body');
