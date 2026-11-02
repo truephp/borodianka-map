@@ -80,19 +80,16 @@ function drawCandidates(p){
   line.style.color=exact?'#86efac':other?'#fca5a5':'#e5ecf9';visicomMatches.append(line);
  }
 }
-const geometryVisicomClasses=new Map(),geometryOSMClasses=new Map(),visicomPartners=new Map(),osmPartners=new Map();let unifiedHiddenOSM=new Set();
+const geometryVisicomClasses=new Map(),geometryOSMClasses=new Map(),visicomPartners=new Map(),osmPartners=new Map(),osmRenderPartners=new Map();let unifiedHiddenOSM=new Set();
 function isUnified(){return document.getElementById('unifiedBuildings').checked&&visicomPolygonMap.size>0;}
 function updateUnified(){
- unifiedHiddenOSM=new Set();let accepted=0,contested=0;
- for(const [id,edges] of visicomPartners){
-  if(edges.length!==1){if(edges.length>1)contested++;continue;}
-  const e=edges[0],reverse=osmPartners.get(e.osmId)||[];
-  if(reverse.length!==1){contested++;continue;}
-  if(e.iou<geometryLimits().high)continue;
-  unifiedHiddenOSM.add(e.osmId);accepted++;
+ unifiedHiddenOSM=new Set();
+ const t=geometryLimits();
+ for(const [osmId,edges] of osmRenderPartners){
+  if(edges.some(e=>e.iou>=t.high||e.overlap>=t.overlap))unifiedHiddenOSM.add(osmId);
  }
  const st=document.getElementById('unifiedStats');
- st.textContent=isUnified()?'Єдиний шар: '+visicomPolygonMap.size+' Visicom; приховано '+accepted+' однозначних OSM-дублікатів; неоднозначних зв’язків: '+contested+'. Інші OSM залишено.':'Для об’єднання увімкни режим і завантаж Visicom-полігони.';
+ st.textContent=isUnified()?'Єдиний шар: '+visicomPolygonMap.size+' Visicom; приховано '+unifiedHiddenOSM.size+' OSM-контурів за IoU ≥ '+t.high.toFixed(2)+' або перекриттям ≥ '+t.overlap.toFixed(2)+'. Це лише відображення; дані не об’єднуються.':'Для об’єднання увімкни режим і завантаж Visicom-полігони.';
 }
 document.getElementById('unifiedBuildings').addEventListener('change',()=>{if(isUnified()){document.getElementById('showBuildings').checked=true;document.getElementById('showVisicomPolygons').checked=true;}updateUnified();renderVisicomPolygons();scheduleRender();});
 
@@ -101,7 +98,7 @@ function geometryLimits(){const values=['iouHigh','iouMedium','iouLow','overlapT
 function classifyGeometry(iou,overlap,t){return iou>=t.high?'high':iou>=t.medium||overlap>=t.overlap?'medium':iou>=t.low?'low':'none';}
 function inSettlement(f){if(!document.getElementById('clipVisicomBoundary').checked||!boundaryData)return true;try{return turf.booleanIntersects(f,boundaryData.features[0]);}catch{return false;}}
 function recalculateGeometryMatches(){
- geometryOSMMatches=new Set();geometryVisicomMatches=new Set();geometryVisicomClasses.clear();geometryOSMClasses.clear();visicomPartners.clear();osmPartners.clear();unifiedHiddenOSM.clear();
+ geometryOSMMatches=new Set();geometryVisicomMatches=new Set();geometryVisicomClasses.clear();geometryOSMClasses.clear();visicomPartners.clear();osmPartners.clear();osmRenderPartners.clear();unifiedHiddenOSM.clear();
  const stats=document.getElementById('geometryStats');
  if(!buildingData||!visicomPolygonMap.size){updateUnified();stats.textContent='Завантаж полігони Visicom для порівняння.';return;}
  if(typeof turf==='undefined'){stats.textContent='Не завантажено Turf.js.';return;}
@@ -117,6 +114,7 @@ function recalculateGeometryMatches(){
     const intersection=turf.intersect(v,o.f);if(!intersection)continue;
     const size=turf.area(intersection),iou=size/(area+o.a-size),overlap=size/Math.min(area,o.a);
     const cls=classifyGeometry(iou,overlap,t);if(ranks[cls]>ranks[best])best=cls;
+    const renderOsmId=String(o.f.properties.id);if(!osmRenderPartners.has(renderOsmId))osmRenderPartners.set(renderOsmId,[]);osmRenderPartners.get(renderOsmId).push({visicomId:id,iou,overlap});
     if(ranks[cls]>=2){const osmId=String(o.f.properties.id);const edge={osmId,visicomId:id,iou,overlap};if(!visicomPartners.has(id))visicomPartners.set(id,[]);if(!osmPartners.has(osmId))osmPartners.set(osmId,[]);visicomPartners.get(id).push(edge);osmPartners.get(osmId).push(edge);}
     const osmId=String(o.f.properties.id),old=geometryOSMClasses.get(osmId)||'none';
     if(ranks[cls]>ranks[old])geometryOSMClasses.set(osmId,cls);
