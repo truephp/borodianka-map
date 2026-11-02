@@ -1,29 +1,85 @@
 #!/usr/bin/env node
-// Small diagnostic only: no Visicom results written to tracked files or artifacts.
+// Diagnostic only. No Visicom response data is persisted or published.
 import {readFile} from 'node:fs/promises';
+
 const key=process.env.VISICOM_API_KEY;
 if(!key)throw Error('Missing VISICOM_API_KEY GitHub Actions secret');
 const buildings=JSON.parse(await readFile('data/buildings.geojson','utf8')).features;
-const withAddress=buildings.filter(f=>f.properties.street&&f.properties.housenumber);
-const withoutAddress=buildings.filter(f=>!f.properties.street&&!f.properties.housenumber);
-function sample(items,n){return Array.from({length:Math.min(n,items.length)},(_,i)=>items[Math.floor((i+.5)*items.length/Math.min(n,items.length))]);}
-function center(f){const pts=f.geometry.coordinates[0],lon=pts.reduce((a,p)=>a+p[0],0)/pts.length,lat=pts.reduce((a,p)=>a+p[1],0)/pts.length;return [lon,lat];}
-const samples=[...sample(withAddress,10),...sample(withoutAddress,10)];
-let success=0,empty=0,failed=0;
-for(const [i,f] of samples.entries()){
+const tagged=buildings.filter(f=>f.properties.street&&f.properties.housenumber);
+const untagged=buildings.filter(f=>!f.properties.street&&!f.properties.housenumber);
+function sample(items,n){
+ const count=Math.min(items.length,n);
+ return Array.from({length:count},(_,i)=>items[Math.floor((i+.5)*items.length/count)]);
+}
+function center(f){
+ const pts=f.geometry.coordinates[0];
+ return [pts.reduce((a,p)=>a+p[0],0)/pts.length,pts.reduce((a,p)=>a+p[1],0)/pts.length];
+}
+function normalizeResponse(data){
+ if(Array.isArray(data))return {kind:'array',items:data};
+ if(data===null)return {kind:'null',items:[]};
+ if(!data||typeof data!=='object')return {kind:typeof data,items:null};
+ for(const field of ['features','results','items','data']){
+  if(Array.isArray(data[field]))return {kind:field,items:data[field]};
+ }
+ // Geocode may return a single GeoJSON-like feature rather than a collection.
+ if(data.type==='Feature'||(data.id!=null&&data.properties&&typeof data.properties==='object'))
+  return {kind:'single-feature',items:[data]};
+ if(Object.keys(data).length===0)return {kind:'empty-object',items:[]};
+ return {kind:'unknown-object',items:null};
+}
+function norm(s){return String(s??'').toLocaleLowerCase('uk').replace(/[’‘\u0027]/g,'').replace(/\b(вул\.?|вулиця|пров\.?|провулок|просп\.?|проспект)\b/g,'').replace(/[.,\s-]+/g,' ').trim();}
+function candidateAddress(item){
+ const p=item?.properties||item||{};
+ // Property field names may differ across Visicom API result types.
+ const street=p.street_name??p.street??p['addr:street']??p.address?.street??p.address?.street_name;
+ const number=p.housenumber??p.house_number??p.houseNumber??p['addr:housenumber']??p.address?.house_number??p.address?.housenumber;
+ return {street,number,keys:Object.keys(p)};
+}
+const selected=[...sample(tagged,10),...sample(untagged,10)];
+const stats={checked:0,candidateLists:0,empty:0,http403:0,httpOther:0,network:0,unrecognized:0,single:0,matches:0,mismatches:0,comparisonUnavailable:0};
+for(const [i,f] of selected.entries()){
  const [lon,lat]=center(f);
  const url=new URL('https://api.visicom.ua/data-api/5.0/uk/geocode.json');
- url.searchParams.set('categories','adr_address');url.searchParams.set('near',lon+','+lat);url.searchParams.set('radius','40');url.searchParams.set('limit','5');url.searchParams.set('order','distance');url.searchParams.set('key',key);
+ for(const [k,v] of Object.entries({categories:'adr_address',near:lon+','+lat,radius:'40',limit:'5',order:'distance',key}))
+  url.searchParams.set(k,v);
+ const tag=f.properties.street&&f.properties.housenumber?'tagged':'untagged';
+ stats.checked++;
  try{
-  const response=await fetch(url,{signal:AbortSignal.timeout(20000)});
-  if(!response.ok)throw Error('HTTP '+response.status);
-  const data=await response.json();
-  const arr=Array.isArray(data)?data:Array.isArray(data.features)?data.features:Array.isArray(data.results)?data.results:null;
-  if(!arr){console.log('Sample '+(i+1)+': unexpected response shape, top-level keys: '+Object.keys(data).join(', '));failed++;continue;}
-  if(arr.length)success++;else empty++;
-  console.log('Sample '+(i+1)+' ['+(f.properties.housenumber?'tagged':'untagged')+']: '+arr.length+' candidate(s); result categories '+[...new Set(arr.map(x=>x.properties?.categories?.[0]||x.properties?.category||x.category||'unknown'))].join(','));
- }catch(e){failed++;console.log('Sample '+(i+1)+': '+e.message);}
- await new Promise(r=>setTimeout(r,250));
+  const r=await fetch(url,{signal:AbortSignal.timeout(20000)});
+  if(!r.ok){
+   const code=r.status;
+   if(code===403)stats.http403++;else stats.httpOther++;
+   // Do not dump body: may echo request URL (including key).
+   console.log('Sample '+(i+1)+' ['+tag+']: HTTP '+code+'; content-type='+String(r.headers.get('content-type')||'unknown').split(';')[0]);
+   continue;
+  }
+  const data=await r.json();
+  const {kind,items}=normalizeResponse(data);
+  if(!items){
+   stats.unrecognized++;
+   console.log('Sample '+(i+1)+' ['+tag+']: unexpected schema '+kind+'; root field names '+Object.keys(data).join(','));
+   continue;
+  }
+  if(kind==='single-feature')stats.single++;
+  if(!items.length){stats.empty++;console.log('Sample '+(i+1)+' ['+tag+']: empty ('+kind+')');continue;}
+  stats.candidateLists++;
+  let matchStatus='not-comparable';
+  if(tag==='tagged'){
+   const candidates=items.map(candidateAddress);
+   const comparable=candidates.filter(c=>c.street&&c.number);
+   if(!comparable.length)stats.comparisonUnavailable++;
+   else if(comparable.some(c=>norm(c.street)===norm(f.properties.street)&&norm(c.number)===norm(f.properties.housenumber))){matchStatus='exact-street-and-number';stats.matches++;}
+   else{matchStatus='no-exact-match';stats.mismatches++;}
+   if(!comparable.length)
+    console.log('Sample '+(i+1)+' ['+tag+']: available candidate property names '+[...new Set(candidates.flatMap(c=>c.keys))].slice(0,35).join(','));
+  }
+  console.log('Sample '+(i+1)+' ['+tag+']: '+items.length+' candidate(s); shape='+kind+'; addressMatch='+matchStatus);
+ }catch(e){
+  stats.network++;
+  console.log('Sample '+(i+1)+' ['+tag+']: network/parsing error '+(e?.name||'Error'));
+ }
+ await new Promise(resolve=>setTimeout(resolve,400));
 }
-console.log('SUMMARY: checked='+samples.length+' candidatesFound='+success+' none='+empty+' errors='+failed);
-if(failed===samples.length)process.exitCode=1;
+console.log('SUMMARY '+JSON.stringify(stats));
+if(stats.candidateLists===0)process.exitCode=1;
