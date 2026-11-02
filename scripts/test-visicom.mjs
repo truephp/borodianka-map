@@ -28,7 +28,7 @@ function normalizeResponse(data){
  if(Object.keys(data).length===0)return {kind:'empty-object',items:[]};
  return {kind:'unknown-object',items:null};
 }
-function norm(s){return String(s??'').toLocaleLowerCase('uk').replace(/[’‘']/g,'').replace(/^(?:вулиця|вул\\.?|провулок|пров\\.?|проспект|просп\\.?)\\s+/u,'').replace(/\\s+(?:вулиця|провулок|проспект)$/u,'').replace(/[.,\\s-]+/g,' ').trim();}
+function norm(s){return String(s??'').toLocaleLowerCase('uk').replace(/[’‘']/g,'').replace(/^(?:вулиця|вул\.?|провулок|пров\.?|проспект|просп\.?)\s+/u,'').replace(/\s+(?:вулиця|провулок|проспект)$/u,'').replace(/[.,\s-]+/g,' ').trim();}
 function candidateAddress(item){
  const p=item?.properties||item||{};
  // Property field names may differ across Visicom API result types.
