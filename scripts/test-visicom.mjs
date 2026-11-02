@@ -28,7 +28,7 @@ function normalizeResponse(data){
  if(Object.keys(data).length===0)return {kind:'empty-object',items:[]};
  return {kind:'unknown-object',items:null};
 }
-function norm(s){return String(s??'').toLocaleLowerCase('uk').replace(/[’‘\u0027]/g,'').replace(/\b(вул\.?|вулиця|пров\.?|провулок|просп\.?|проспект)\b/g,'').replace(/[.,\s-]+/g,' ').trim();}
+function norm(s){return String(s??'').toLocaleLowerCase('uk').replace(/[’‘']/g,'').replace(/^(?:вулиця|вул\\.?|провулок|пров\\.?|проспект|просп\\.?)\\s+/u,'').replace(/\\s+(?:вулиця|провулок|проспект)$/u,'').replace(/[.,\\s-]+/g,' ').trim();}
 function candidateAddress(item){
  const p=item?.properties||item||{};
  // Property field names may differ across Visicom API result types.
@@ -36,12 +36,12 @@ function candidateAddress(item){
  const number=p.housenumber??p.house_number??p.houseNumber??p['addr:housenumber']??p.address?.house_number??p.address?.housenumber;
  return {street,number,name:p.name,categories:p.categories,dist:p.dist_meters,keys:Object.keys(p)};
 }
-const selected=[...sample(tagged,10),...sample(untagged,10)];
-const stats={nameNumberMatches:0,nameNumberMismatches:0,nameNumberUncertain:0,checked:0,candidateLists:0,empty:0,http403:0,httpOther:0,network:0,unrecognized:0,single:0,matches:0,mismatches:0,comparisonUnavailable:0};
+const target=Math.max(2,Math.min(100,Number.parseInt(process.env.VISICOM_TEST_COUNT||'60',10)||60));const selected=[...sample(tagged,Math.ceil(target/2)),...sample(untagged,Math.floor(target/2))];
+const stats={confidenceHigh:0,confidenceReview:0,confidenceUnknown:0,taggedExact:0,taggedMismatch:0,taggedNoCandidate:0,nameNumberMatches:0,nameNumberMismatches:0,nameNumberUncertain:0,checked:0,candidateLists:0,empty:0,http403:0,httpOther:0,network:0,unrecognized:0,single:0,matches:0,mismatches:0,comparisonUnavailable:0};
 for(const [i,f] of selected.entries()){
  const [lon,lat]=center(f);
  const url=new URL('https://api.visicom.ua/data-api/5.0/uk/geocode.json');
- for(const [k,v] of Object.entries({categories:'adr_address',near:lon+','+lat,radius:'40',limit:'5',order:'distance',key}))
+ for(const [k,v] of Object.entries({categories:'adr_address',near:lon+','+lat,radius:'50',limit:'10',order:'distance',key}))
   url.searchParams.set(k,v);
  const tag=f.properties.street&&f.properties.housenumber?'tagged':'untagged';
  stats.checked++;
@@ -74,15 +74,25 @@ for(const [i,f] of selected.entries()){
    if(!comparable.length)
     console.log('Sample '+(i+1)+' ['+tag+']: available candidate property names '+[...new Set(candidates.flatMap(c=>c.keys))].slice(0,35).join(','));
   }
-  // Visicom often provides the house number in 'name' rather than a dedicated field.
-  if(tag==='tagged'){
-   const osmStreet=norm(f.properties.street),osmNumber=norm(f.properties.housenumber);
-   const possible=items.map(candidateAddress).filter(c=>c.street&&c.name);
-   const exact=possible.some(c=>norm(c.street)===osmStreet&&(norm(c.name)===osmNumber||norm(c.name).split(' ').includes(osmNumber)));
-   if(exact)stats.nameNumberMatches++;
-   else if(possible.length)stats.nameNumberMismatches++;
-   else stats.nameNumberUncertain++;
+  const candidates=items.map(candidateAddress).map(c=>({...c,number:c.number??c.name,meters:Number(c.dist)}));
+  const scored=candidates.filter(c=>c.street&&c.number&&Number.isFinite(c.meters)).sort((a,b)=>a.meters-b.meters);
+  const nearest=scored[0],second=scored[1];
+  let confidence='unknown';
+  if(nearest){
+   const gap=second?second.meters-nearest.meters:Infinity;
+   confidence=nearest.meters<=10&&gap>=10?'high':'review';
   }
+  if(confidence==='high')stats.confidenceHigh++;
+  else if(confidence==='review')stats.confidenceReview++;
+  else stats.confidenceUnknown++;
+  if(tag==='tagged'){
+   const exact=scored.filter(c=>norm(c.street)===norm(f.properties.street)&&norm(c.number)===norm(f.properties.housenumber));
+   if(exact.length){stats.taggedExact++;stats.nameNumberMatches++;matchStatus='exact-'+exact[0].meters+'m';}
+   else{stats.taggedMismatch++;stats.nameNumberMismatches++;matchStatus='no-exact-candidate';}
+   if(!scored.length)stats.comparisonUnavailable++;
+  }
+  // Proximity alone never confirms an address assignment.
+  console.log('  assessment='+confidence+'; nearestDistance='+(nearest?.meters??'n/a')+'m; secondDistance='+(second?.meters??'n/a')+'m');
   console.log('Sample '+(i+1)+' ['+tag+']: '+items.length+' candidate(s); shape='+kind+'; addressMatch='+matchStatus+'; OSM address='+JSON.stringify(tag==='tagged'?[f.properties.street,f.properties.housenumber]:null));
   for(const [ci,item] of items.entries()){
    const c=candidateAddress(item);
@@ -94,7 +104,7 @@ for(const [i,f] of selected.entries()){
   stats.network++;
   console.log('Sample '+(i+1)+' ['+tag+']: network/parsing error '+(e?.name||'Error'));
  }
- await new Promise(resolve=>setTimeout(resolve,400));
+ await new Promise(resolve=>setTimeout(resolve,650));
 }
-console.log('SUMMARY '+JSON.stringify(stats));
+console.log('SUMMARY '+JSON.stringify(stats));console.log('NOTE: high confidence describes spatial isolation only, not verified address ownership.');
 if(stats.candidateLists===0)process.exitCode=1;
