@@ -38,7 +38,7 @@ function candidateAddress(item){
  const number=p.housenumber??p.house_number??p.houseNumber??p['addr:housenumber']??p.address?.house_number??p.address?.housenumber;
  return {street,number,name:p.name,categories:p.categories,dist:p.dist_meters,keys:Object.keys(p)};
 }
-const target=Math.max(2,Math.min(100,Number.parseInt(process.env.VISICOM_TEST_COUNT||'60',10)||60));const selected=[...sample(tagged,Math.ceil(target/2)),...sample(untagged,Math.floor(target/2))];
+const target=Math.max(2,Math.min(500,Number.parseInt(process.env.VISICOM_TEST_COUNT||'500',10)||500));const selected=[...sample(tagged,Math.ceil(target/2)),...sample(untagged,Math.floor(target/2))];
 const exportRows=[];
 const stats={confidenceHigh:0,confidenceReview:0,confidenceUnknown:0,taggedExact:0,taggedMismatch:0,taggedNoCandidate:0,nameNumberMatches:0,nameNumberMismatches:0,nameNumberUncertain:0,checked:0,candidateLists:0,empty:0,http403:0,httpOther:0,network:0,unrecognized:0,single:0,matches:0,mismatches:0,comparisonUnavailable:0};
 for(const [i,f] of selected.entries()){
