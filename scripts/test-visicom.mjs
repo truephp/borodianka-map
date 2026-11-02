@@ -34,10 +34,10 @@ function candidateAddress(item){
  // Property field names may differ across Visicom API result types.
  const street=p.street_name??p.street??p['addr:street']??p.address?.street??p.address?.street_name;
  const number=p.housenumber??p.house_number??p.houseNumber??p['addr:housenumber']??p.address?.house_number??p.address?.housenumber;
- return {street,number,keys:Object.keys(p)};
+ return {street,number,name:p.name,categories:p.categories,dist:p.dist_meters,keys:Object.keys(p)};
 }
 const selected=[...sample(tagged,10),...sample(untagged,10)];
-const stats={checked:0,candidateLists:0,empty:0,http403:0,httpOther:0,network:0,unrecognized:0,single:0,matches:0,mismatches:0,comparisonUnavailable:0};
+const stats={nameNumberMatches:0,nameNumberMismatches:0,nameNumberUncertain:0,checked:0,candidateLists:0,empty:0,http403:0,httpOther:0,network:0,unrecognized:0,single:0,matches:0,mismatches:0,comparisonUnavailable:0};
 for(const [i,f] of selected.entries()){
  const [lon,lat]=center(f);
  const url=new URL('https://api.visicom.ua/data-api/5.0/uk/geocode.json');
@@ -74,7 +74,22 @@ for(const [i,f] of selected.entries()){
    if(!comparable.length)
     console.log('Sample '+(i+1)+' ['+tag+']: available candidate property names '+[...new Set(candidates.flatMap(c=>c.keys))].slice(0,35).join(','));
   }
-  console.log('Sample '+(i+1)+' ['+tag+']: '+items.length+' candidate(s); shape='+kind+'; addressMatch='+matchStatus);
+  // Visicom often provides the house number in 'name' rather than a dedicated field.
+  if(tag==='tagged'){
+   const osmStreet=norm(f.properties.street),osmNumber=norm(f.properties.housenumber);
+   const possible=items.map(candidateAddress).filter(c=>c.street&&c.name);
+   const exact=possible.some(c=>norm(c.street)===osmStreet&&(norm(c.name)===osmNumber||norm(c.name).split(' ').includes(osmNumber)));
+   if(exact)stats.nameNumberMatches++;
+   else if(possible.length)stats.nameNumberMismatches++;
+   else stats.nameNumberUncertain++;
+  }
+  console.log('Sample '+(i+1)+' ['+tag+']: '+items.length+' candidate(s); shape='+kind+'; addressMatch='+matchStatus+'; OSM address='+JSON.stringify(tag==='tagged'?[f.properties.street,f.properties.housenumber]:null));
+  for(const [ci,item] of items.entries()){
+   const c=candidateAddress(item);
+   // Print only selected address properties, never raw response, URLs or credentials.
+   const safe=v=>typeof v==='string'?v.slice(0,120):v;
+   console.log('  Candidate '+(ci+1)+': '+JSON.stringify({name:safe(c.name),street:safe(c.street),categories:c.categories,dist_meters:c.dist}));
+  }
  }catch(e){
   stats.network++;
   console.log('Sample '+(i+1)+' ['+tag+']: network/parsing error '+(e?.name||'Error'));
