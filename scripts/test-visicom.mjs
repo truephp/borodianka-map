@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Diagnostic only. No Visicom response data is persisted or published.
-import {readFile} from 'node:fs/promises';
+import {readFile,writeFile,mkdir} from 'node:fs/promises';
+import {dirname} from 'node:path';
 
 const key=process.env.VISICOM_API_KEY;
 if(!key)throw Error('Missing VISICOM_API_KEY GitHub Actions secret');
@@ -37,6 +38,7 @@ function candidateAddress(item){
  return {street,number,name:p.name,categories:p.categories,dist:p.dist_meters,keys:Object.keys(p)};
 }
 const target=Math.max(2,Math.min(100,Number.parseInt(process.env.VISICOM_TEST_COUNT||'60',10)||60));const selected=[...sample(tagged,Math.ceil(target/2)),...sample(untagged,Math.floor(target/2))];
+const exportRows=[];
 const stats={confidenceHigh:0,confidenceReview:0,confidenceUnknown:0,taggedExact:0,taggedMismatch:0,taggedNoCandidate:0,nameNumberMatches:0,nameNumberMismatches:0,nameNumberUncertain:0,checked:0,candidateLists:0,empty:0,http403:0,httpOther:0,network:0,unrecognized:0,single:0,matches:0,mismatches:0,comparisonUnavailable:0};
 for(const [i,f] of selected.entries()){
  const [lon,lat]=center(f);
@@ -44,6 +46,7 @@ for(const [i,f] of selected.entries()){
  for(const [k,v] of Object.entries({categories:'adr_address',near:lon+','+lat,radius:'50',limit:'10',order:'distance',key}))
   url.searchParams.set(k,v);
  const tag=f.properties.street&&f.properties.housenumber?'tagged':'untagged';
+ const row={osmId:f.properties.id,candidates:[]};exportRows.push(row);
  stats.checked++;
  try{
   const r=await fetch(url,{signal:AbortSignal.timeout(20000)});
@@ -75,6 +78,7 @@ for(const [i,f] of selected.entries()){
     console.log('Sample '+(i+1)+' ['+tag+']: available candidate property names '+[...new Set(candidates.flatMap(c=>c.keys))].slice(0,35).join(','));
   }
   const candidates=items.map(candidateAddress).map(c=>({...c,number:c.number??c.name,meters:Number(c.dist)}));
+  row.candidates=candidates.filter(c=>c.street&&c.number).slice(0,10).map(c=>({street:String(c.street).slice(0,120),name:String(c.number).slice(0,40),dist_meters:Number.isFinite(c.meters)?c.meters:null}));
   const scored=candidates.filter(c=>c.street&&c.number&&Number.isFinite(c.meters)).sort((a,b)=>a.meters-b.meters);
   const nearest=scored[0],second=scored[1];
   let confidence='unknown';
@@ -108,3 +112,11 @@ for(const [i,f] of selected.entries()){
 }
 console.log('SUMMARY '+JSON.stringify(stats));console.log('NOTE: high confidence describes spatial isolation only, not verified address ownership.');
 if(stats.candidateLists===0)process.exitCode=1;
+
+// Export ONLY sanitized address candidates, never API URLs/keys/raw responses.
+if(process.env.VISICOM_EXPORT_PATH){
+ const target=process.env.VISICOM_EXPORT_PATH;
+ await mkdir(dirname(target),{recursive:true});
+ await writeFile(target,JSON.stringify(exportRows,null,2)+'\n',{mode:0o600});
+ console.log('Private comparison export prepared: '+exportRows.length+' OSM records (not committed or deployed).');
+}
