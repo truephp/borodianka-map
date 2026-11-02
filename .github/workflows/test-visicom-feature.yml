@@ -6,13 +6,22 @@ permissions:
 jobs:
   inspect-feature:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Check geometry types of 10 Visicom address features
+      - name: Check geometry types of 30 Visicom address features
         env:
           VISICOM_API_KEY: ${{ secrets.VISICOM_API_KEY }}
+          VISICOM_EXPORT_PASSWORD: ${{ secrets.VISICOM_EXPORT_PASSWORD }}
+          VISICOM_EXPORT_PATH: ${{ runner.temp }}/visicom/visicom-polygons.enc.json
         run: node scripts/test-visicom-feature.mjs
+      - name: Upload encrypted feature polygons
+        uses: actions/upload-artifact@v4
+        with:
+          name: visicom-feature-polygons
+          path: ${{ runner.temp }}/visicom/visicom-polygons.enc.json
+          if-no-files-found: error
+          retention-days: 1
