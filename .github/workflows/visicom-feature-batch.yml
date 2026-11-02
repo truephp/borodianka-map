@@ -1,0 +1,52 @@
+name: Visicom Feature Batch
+on:
+  workflow_dispatch:
+    inputs:
+      discovery_run_id:
+        description: Successful Visicom Spatial Discovery run ID
+        required: true
+        type: string
+      offset:
+        description: First feature index (0, 100, 200...)
+        required: true
+        default: '0'
+        type: string
+      batch_size:
+        description: Number of IDs (1-250)
+        required: true
+        default: '100'
+        type: string
+permissions:
+  contents: read
+  actions: read
+jobs:
+  features:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@v4
+        with:
+          name: visicom-address-index
+          run-id: ${{ inputs.discovery_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/visicom-index
+      - name: Fetch encrypted polygon batch
+        env:
+          VISICOM_API_KEY: ${{ secrets.VISICOM_API_KEY }}
+          VISICOM_EXPORT_PASSWORD: ${{ secrets.VISICOM_EXPORT_PASSWORD }}
+          VISICOM_INDEX_FILE: ${{ runner.temp }}/visicom-index/visicom-address-index.enc.json
+          VISICOM_EXPORT_PATH: ${{ runner.temp }}/visicom-features/polygons.enc.json
+          VISICOM_OFFSET: ${{ inputs.offset }}
+          VISICOM_BATCH_SIZE: ${{ inputs.batch_size }}
+        run: node scripts/visicom-feature-batch.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: visicom-polygon-batch
+          path: ${{ runner.temp }}/visicom-features/polygons.enc.json
+          retention-days: 1
+          if-no-files-found: warn
