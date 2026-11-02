@@ -1,0 +1,28 @@
+name: Test Visicom Spatial Discovery
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  spatial:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Pilot spatial discovery and encrypted feature export
+        env:
+          VISICOM_API_KEY: ${{ secrets.VISICOM_API_KEY }}
+          VISICOM_EXPORT_PASSWORD: ${{ secrets.VISICOM_EXPORT_PASSWORD }}
+          VISICOM_EXPORT_PATH: ${{ runner.temp }}/visicom/visicom-spatial.enc.json
+          VISICOM_MAX_CELLS: '4'
+          VISICOM_MAX_FEATURES: '30'
+        run: node scripts/visicom-spatial.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: visicom-spatial-pilot
+          path: ${{ runner.temp }}/visicom/visicom-spatial.enc.json
+          retention-days: 1
+          if-no-files-found: error
