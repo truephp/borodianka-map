@@ -1,0 +1,65 @@
+name: Visicom Full Feature Export
+on:
+  workflow_dispatch:
+    inputs:
+      discovery_run_id:
+        description: Completed Visicom Spatial Discovery run ID
+        required: true
+        default: '41505103037'
+        type: string
+      resume_run_id:
+        description: Optional previous Full Feature Export run ID with encrypted checkpoint
+        required: false
+        default: ''
+        type: string
+permissions:
+  contents: read
+  actions: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@v4
+        with:
+          name: visicom-address-index
+          run-id: ${{ inputs.discovery_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/visicom-index
+      - name: Download encrypted checkpoint
+        if: inputs.resume_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: visicom-feature-checkpoint
+          run-id: ${{ inputs.resume_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/resume
+      - name: Fetch all Visicom features with checkpoint
+        env:
+          VISICOM_API_KEY: ${{ secrets.VISICOM_API_KEY }}
+          VISICOM_EXPORT_PASSWORD: ${{ secrets.VISICOM_EXPORT_PASSWORD }}
+          VISICOM_INDEX_FILE: ${{ runner.temp }}/visicom-index/visicom-address-index.enc.json
+          VISICOM_EXPORT_PATH: ${{ runner.temp }}/visicom-output/visicom-buildings.enc.json
+          VISICOM_CHECKPOINT_PATH: ${{ runner.temp }}/visicom-output/checkpoint.enc.json
+          VISICOM_RESUME_FILE: ${{ inputs.resume_run_id != '' && format('{0}/resume/checkpoint.enc.json', runner.temp) || '' }}
+        run: node scripts/visicom-full-features.mjs
+      - name: Upload full encrypted polygons
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visicom-buildings
+          path: ${{ runner.temp }}/visicom-output/visicom-buildings.enc.json
+          retention-days: 1
+          if-no-files-found: warn
+      - name: Upload encrypted recovery checkpoint
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visicom-feature-checkpoint
+          path: ${{ runner.temp }}/visicom-output/checkpoint.enc.json
+          retention-days: 1
+          if-no-files-found: warn
