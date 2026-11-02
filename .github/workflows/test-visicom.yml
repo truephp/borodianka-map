@@ -6,15 +6,16 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Test 60 OSM buildings and prepare private comparison JSON
+      - name: Test 500 OSM buildings and prepare private comparison JSON
         env:
           VISICOM_API_KEY: ${{ secrets.VISICOM_API_KEY }}
+          VISICOM_TEST_COUNT: '500'
           VISICOM_EXPORT_PATH: ${{ runner.temp }}/visicom-private/visicom-matches.enc.json
           VISICOM_EXPORT_PASSWORD: ${{ secrets.VISICOM_EXPORT_PASSWORD }}
         run: node scripts/test-visicom.mjs
