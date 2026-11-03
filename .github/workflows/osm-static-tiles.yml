@@ -70,6 +70,11 @@ jobs:
           sudo apt-get install -y osmium-tool fonts-dejavu-core
           python -m pip install --disable-pip-version-check 'Pillow>=11,<13' 'shapely>=2,<3' 'mercantile>=1.2,<2' 'awscli>=1.40,<3'
 
+      - name: Offline generator smoke test (no downloads)
+        run: |
+          python -m py_compile scripts/build_osm_tiles.py scripts/test_osm_tiles.py
+          python -m unittest scripts.test_osm_tiles -v
+
       - name: Download open OSM source data (not OSM raster tiles)
         run: |
           mkdir -p "$RUNNER_TEMP/osm"
