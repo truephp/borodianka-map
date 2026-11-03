@@ -38,7 +38,7 @@ function activateBasemap(){
  if(mode==='local'){
   let url;
   try{
-   const input=localTilesUrl.value.trim().replace(/\\/$/,'');
+   const input=localTilesUrl.value.trim();
    url=new URL(input);
    if(url.protocol!=='https:')throw Error('Only HTTPS');
    if(!/^https:\/\//.test(input))throw Error('Missing HTTPS');
@@ -47,7 +47,7 @@ function activateBasemap(){
    visicomStatus.textContent='Для локальної OSM спочатку введи повний HTTPS URL публічного каталогу R2.';
    return;
   }
-  localTiles=L.tileLayer(url.href.replace(/\\/$/,'')+'/{z}/{x}/{y}.webp',{
+  localTiles=L.tileLayer((url.href.endsWith('/')?url.href.slice(0,-1):url.href)+'/{z}/{x}/{y}.webp',{
    minZoom:13,maxZoom:19,tileSize:256,
    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>'
   });
