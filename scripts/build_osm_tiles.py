@@ -121,7 +121,7 @@ def parts(geom, types):
             yield from parts(g, types)
 
 
-def render_tile(tile, shapes, tree, features, font):
+def render_tile(tile, tree, features, font):
     image = Image.new("RGB", (TILE_SIZE, TILE_SIZE), COLORS["background"])
     draw = ImageDraw.Draw(image)
     west, south, east, north = mercantile.bounds(tile)
@@ -149,7 +149,7 @@ def render_tile(tile, shapes, tree, features, font):
     candidates.sort(key=lambda row: order[row[1]])
     labels = []
     for geom, kind, name in candidates:
-        if isinstance(geom, (Polygon, MultiPolygon, GeometryCollection)):
+        if kind in ("residential", "industrial", "forest", "park", "grass", "water"):
             for poly in parts(geom, (Polygon,)):
                 coords = [xy(p) for p in poly.exterior.coords]
                 if len(coords) >= 3:
@@ -224,7 +224,7 @@ def main():
                 continue
             file = output / str(z) / str(tile.x) / f"{tile.y}.webp"
             file.parent.mkdir(parents=True, exist_ok=True)
-            image = render_tile(tile, None, tree, features, font)
+            image = render_tile(tile, tree, features, font)
             image.save(file, format="WEBP", quality=args.quality, method=4)
             current += 1
         per_zoom[str(z)] = current
