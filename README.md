@@ -100,3 +100,49 @@ Workflow **Visicom Full Feature Export** (`.github/workflows/visicom-full-featur
 ### Оновлене правило відображення єдиного шару
 
 У режимі «Єдиний шар будівель» OSM-контур приховується, коли **хоча б один** полігон Visicom, що перетинається з ним, досягає порога «Впевнений IoU» **або** порога «Перекриття меншого контуру». Вимога взаємної однозначності 1:1 **не застосовується до відображення**. Вихідні записи, адреси та конфліктні зв'язки не видаляються й не зливаються. Перерахунок запускається при зміні порогів. Такий режим може візуально приховати окремі OSM-об'єкти, що перекриваються з більшими Visicom-контурами; для перевірки вимкніть єдиний шар.
+
+## Власна OSM-підкладка без будівель (R2 / Cloudflare)
+
+Репозиторій містить генератор `scripts/build_osm_tiles.py`, тест `scripts/test_osm_tiles.py` і ручний GitHub Actions workflow **Build Static OSM Tiles → Cloudflare R2** (`.github/workflows/osm-static-tiles.yml`).
+
+### Джерело та процес
+
+Workflow завантажує **відкриті векторні дані** `ukraine-latest.osm.pbf` від [Geofabrik](https://download.geofabrik.de/europe/ukraine.html), а не готові тайли `tile.openstreetmap.org`. Утиліта `osmium extract` вирізає прямокутник навколо `data/boundary.geojson` з 18% полем; `osmium export` створює GeoJSON Sequence. Python/Pillow/Shapely/mercantile малюють WebP 256×256 за XYZ (`/{z}/{x}/{y}.webp`) для вибраних масштабів, дороги, водойми, зелені території, залізницю та частину підписів, **без геометрії будівель**. Стиль спрощений і **не є точним клоном стандартної OSM-підкладки**. Окремий TileServer і PostGIS не потрібні.
+
+Запуск: **Actions → Build Static OSM Tiles → Run workflow**. Параметри:
+- `min_zoom=13`, `max_zoom=19` — повна збірка; для першого тесту рекомендуємо `13..15`.
+- `version=v1` — каталог незмінної версії в R2; для наступного оновлення виберіть `v2` або дату.
+- `publish=false` — згенерувати й перевірити без публікації; `true` — завантажити в R2.
+
+Перед `publish=true` встановіть в **GitHub Settings → Secrets and variables → Actions**:
+
+| Тип | Назва | Призначення |
+|---|---|---|
+| Variable | `R2_ACCOUNT_ID` | Cloudflare account ID |
+| Variable | `R2_BUCKET` | Назва R2 bucket |
+| Secret | `R2_ACCESS_KEY_ID` | R2 S3 API token, Access Key ID |
+| Secret | `R2_SECRET_ACCESS_KEY` | R2 S3 API token, Secret Access Key |
+
+R2 token повинен мати write-доступ лише до потрібного bucket. У Cloudflare R2 прив'яжіть до bucket **Custom Domain** (не `r2.dev`, якщо потрібен CDN-кеш). Workflow публікує тайли як `borodianka/<version>/<z>/<x>/<y>.webp`, а опис набору — `borodianka/<version>/manifest.json`. Для версіонованих тайлів надсилається `Cache-Control: public, max-age=31536000, immutable`. **Не використовуйте ту саму версію для оновлення вже опублікованих файлів**: створіть нову версію, інакше CDN може довго віддавати стару.
+
+### Підключення до Leaflet
+
+На карті в **Налаштування → Підкладка** є третій пункт **Локальна OSM (Cloudflare R2)**. У поле **R2: публічна адреса набору тайлів** введіть URL виду:
+
+`https://tiles.example.com/borodianka/v1`
+
+Не додавайте `/{z}/{x}/{y}.webp` — Leaflet підставляє координати. URL публічний, зберігається у localStorage браузера; ключі R2 на карту не передаються. Далі оберіть підкладку. Поки домен і публікація не налаштовані, OSM та Visicom працюють як раніше.
+
+**Ліцензія**: зберігайте атрибуцію © OpenStreetMap contributors та дотримуйтеся ODbL й умов відповідних векторних даних. Тайли R2 створюються незалежно з даних OSM, ніякі готові OSM/Visicom-тайли не копіюються. Дані Visicom до генератора не потрапляють.
+
+### Локальний запуск
+
+```bash
+python -m pip install 'Pillow>=11,<13' 'shapely>=2,<3' 'mercantile>=1.2,<2'
+python -m unittest scripts.test_osm_tiles -v
+# Передайте GeoJSON Sequence, експортований з OSM PBF:
+python scripts/build_osm_tiles.py --input borodianka.geojsonseq --out dist/tiles --min-zoom 13 --max-zoom 19
+```
+
+Після генерації файли можна віддавати будь-яким статичним HTTP-сервером. Для Cloudflare CDN не потрібно підтримувати VPS.
+
