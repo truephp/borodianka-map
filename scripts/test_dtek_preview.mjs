@@ -31,6 +31,17 @@ try{
   const ciphertext=await crypto.subtle.encrypt({name:"AES-GCM",iv},key,new TextEncoder().encode(JSON.stringify(sample)));
   return {version:1,kdf:"PBKDF2-SHA256",iterations:210000,salt:b64(salt),iv:b64(iv),data:b64(new Uint8Array(ciphertext))};
  });
+ // The deployed report is fetched by the map automatically; only the
+ // shared Visicom password is needed to decrypt it.
+ await page.route("**/data/dtek-all-unified-matches.enc.json",route=>route.fulfill({
+  status:200,contentType:"application/json",body:JSON.stringify(envelope)
+ }));
+ await page.reload({waitUntil:"domcontentloaded"});
+ await page.evaluate(()=>{document.querySelector("#body").hidden=false;for(const group of document.querySelectorAll("details.setting-section"))group.open=true;});
+ await page.locator("#visicomPassword").fill("local-synthetic-test-only");
+ await page.locator("#visicomPassword").dispatchEvent("change");
+ await page.waitForFunction(()=>document.querySelector("#dtekReviewStatus").textContent.includes("Завантажено 1"),null,{timeout:20000});
+ console.log("PASS: same-site encrypted report loaded automatically after password entry");
  await page.locator("#dtekReviewFile").setInputFiles({
   name:"synthetic-dtek-review.enc.json",
   mimeType:"application/json",
