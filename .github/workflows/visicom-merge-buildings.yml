@@ -36,6 +36,8 @@ jobs:
           python-version: '3.12'
       - name: Install geometry and encryption libraries
         run: python -m pip install --disable-pip-version-check 'shapely>=2,<3' 'cryptography>=43,<47'
+      - name: Test encrypted merge and geometry rules
+        run: python -m unittest scripts.test_merge_buildings -v
       - name: Reuse existing encrypted Visicom export
         if: inputs.visicom_run_id != ''
         uses: actions/download-artifact@v4
