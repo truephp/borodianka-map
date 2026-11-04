@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Audit DTEK house addresses against OSM and the encrypted unified building layer.
 
-Street type and house suffix are preserved for exact matching. Variations of
-slash, Latin/Cyrillic characters, street aliases and reversed names are only
-review candidates. Visicom derived records must remain encrypted.
+A missing Visicom street type is accepted when the street name and house
+number uniquely match and neither the OSM roads nor DTEK directories nor
+building records contain a conflicting street/lane type. Spelling variants
+remain review candidates. Visicom derived records must remain encrypted.
 """
 import argparse
 from collections import defaultdict, Counter
@@ -64,17 +65,40 @@ def address_records(collection, source_override=None):
                "kind": kind, "streetKey": key, "houseKey": house_key(house)}
 
 
-def match_houses(responses, building_records, aliases=None):
+def known_street_types(roads=None, directory=None, buildings=()):
+    """Return explicit street/lane types by normalized name across all sources.
+
+    Missing Visicom type never introduces a type, and a conflicting explicit
+    type anywhere is enough to require manual review.
+    """
+    names = defaultdict(set)
+    for item in buildings:
+        if item["kind"]:
+            names[item["streetKey"]].add(item["kind"])
+    for feature in (roads or {}).get("features", []):
+        street = (feature.get("properties") or {}).get("name")
+        if street:
+            kind, name = street_key(street)
+            if kind and name:
+                names[name].add(kind)
+    for streets in (directory or {}).get("streets", {}).values():
+        for street in streets:
+            kind, name = street_key(street)
+            if kind and name:
+                names[name].add(kind)
+    return names
+
+
+def match_houses(responses, building_records, aliases=None, roads=None, directory=None):
     # Alias overrides are human-reviewed, not guessed from string similarity.
     aliases = aliases or {}
-    idx = defaultdict(list)
-    loose_idx = defaultdict(list)
+    kinds = known_street_types(roads, directory, building_records)
+    typed_idx = defaultdict(list)
     name_idx = defaultdict(list)
     name_loose_idx = defaultdict(list)
     for building in building_records:
         key = (building["kind"], building["streetKey"])
-        idx[(key, building["houseKey"])].append(building)
-        loose_idx[(key, house_candidate_key(building["house"]))].append(building)
+        typed_idx[(key, building["houseKey"])].append(building)
         name_idx[(building["streetKey"], building["houseKey"])].append(building)
         name_loose_idx[(building["streetKey"], house_candidate_key(building["house"]))].append(building)
 
@@ -96,38 +120,48 @@ def match_houses(responses, building_records, aliases=None):
         alias = aliases.get(f"{city}|{street}")
         if alias:
             street_type, street_name = street_key(alias)
+
+        available_kinds = kinds.get(street_name, set())
+        ambiguous_kind = len(available_kinds) > 1
+        # A different explicit building type is a conflict, never a match.
         for house in houses.values():
-            key = ((street_type, street_name), house_key(house))
-            exact = idx.get(key, [])
-            # Never automatically promote near matches (incl. Cyrillic vs Latin letters)
-            candidate = loose_idx.get(((street_type, street_name), house_candidate_key(house)), [])
-            if exact:
-                # Multiple physical outlines with the same address are ambiguous.
-                status = "exact" if len(exact) == 1 else "multiple"
-                matches = exact
-            elif candidate:
-                status, matches = "candidate_house_format", candidate
-            else:
-                same_name = name_idx.get((street_name, house_key(house)), [])
-                same_name_variant = name_loose_idx.get((street_name, house_candidate_key(house)), [])
-                if same_name:
-                    # Visicom often lacks a road type; a lane may share a street name.
+            hkey = house_key(house)
+            same_name = name_idx.get((street_name, hkey), [])
+            compatible = [b for b in same_name if b["kind"] is None or b["kind"] == street_type]
+            conflicting = [b for b in same_name if b["kind"] and b["kind"] != street_type]
+            if same_name:
+                if conflicting or ambiguous_kind or not street_type:
+                    # An untyped Visicom address cannot choose between a street and lane.
                     status, matches = "candidate_street_type", same_name
-                elif same_name_variant:
-                    status, matches = "candidate_street_and_house_format", same_name_variant
+                elif len(compatible) == 1:
+                    status, matches = "exact", compatible
+                elif len(compatible) > 1:
+                    status, matches = "multiple", compatible
+                else:
+                    status, matches = "candidate_street_type", same_name
+            else:
+                loose = name_loose_idx.get((street_name, house_candidate_key(house)), [])
+                if loose:
+                    status = ("candidate_house_format"
+                              if street_type and not ambiguous_kind
+                              and all(b["kind"] in (None, street_type) for b in loose)
+                              else "candidate_street_and_house_format")
+                    matches = loose
                 else:
                     status, matches = "unmatched", []
             counts[status] += 1
             out.append({"city": city, "street": street, "house": house, "status": status,
                         "links": [{"source": b["source"], "id": b["id"],
                                    "street": b["street"], "house": b["house"]} for b in matches]})
-    return {"schemaVersion": 1, "counts": dict(counts), "records": out}
+    return {"schemaVersion": 2, "counts": dict(counts), "records": out}
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--dtek", required=True, help="Captured DTEK house-number JSON")
     ap.add_argument("--osm", default="data/buildings.geojson")
+    ap.add_argument("--roads", default="data/roads.geojson")
+    ap.add_argument("--directory", default="data/dtek-borodianka-streets.json")
     ap.add_argument("--visicom-encrypted", help="Encrypted merged Visicom-first building GeoJSON")
     ap.add_argument("--aliases", help="Reviewed DTEK city|street to canonical street map")
     ap.add_argument("--output", required=True)
@@ -151,7 +185,9 @@ def main(argv=None):
     aliases = json.loads(Path(args.aliases).read_text(encoding="utf-8")) if args.aliases else {}
     if not isinstance(aliases, dict):
         raise ValueError("Aliases must be a JSON object")
-    result = match_houses(raw["responses"], buildings, aliases)
+    roads = json.loads(Path(args.roads).read_text(encoding="utf-8"))
+    directory = json.loads(Path(args.directory).read_text(encoding="utf-8"))
+    result = match_houses(raw["responses"], buildings, aliases, roads=roads, directory=directory)
     result["buildingSources"] = dict(Counter(b["source"] for b in buildings))
     # Aggregate-only diagnostics: never expose decrypted Visicom addresses.
     source_names = {b["streetKey"] for b in buildings}
