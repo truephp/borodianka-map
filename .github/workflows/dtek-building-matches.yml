@@ -76,7 +76,7 @@ jobs:
           print("| Metric | OSM | Unified Visicom+OSM |")
           print("|---|---:|---:|")
           osm, unified = [json.load(open(p,encoding="utf-8")) for p in sys.argv[1:]]
-          for key in ("exact", "multiple", "candidate", "unmatched", "source_error"):
+          for key in ("exact", "multiple", "candidate_house_format", "candidate_street_type", "candidate_street_and_house_format", "unmatched", "source_error"):
               print(f"| {key} | {osm['counts'].get(key,0)} | {unified['counts'].get(key,0)} |")
           print("\nDetailed unified report is **encrypted**; no plaintext Visicom addresses or geometry are uploaded.")
           PY
