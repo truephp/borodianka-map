@@ -208,7 +208,7 @@ def main():
     dest.write_text(json.dumps(encrypt(merged, password), separators=(",", ":")) + "\n")
     print("MERGED_BUILDINGS " + json.dumps({**merged["metadata"], "total": len(merged["features"])}, ensure_ascii=False))
     stats = merged["metadata"]["overlapStatistics"]
-    print("\\nOVERLAP_DISTRIBUTION (best overlap of each OSM building)")
+    print("\nOVERLAP_DISTRIBUTION (best overlap of each OSM building)")
     print("Range      Total   Excluded   Added")
     for band in stats["ranges"]:
         print(f'{band:<10} {stats["histogram"][band]:>5} {stats["excluded"][band]:>10} {stats["supplemental"][band]:>7}')
@@ -220,12 +220,12 @@ def main():
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_path:
         with open(summary_path, "a", encoding="utf-8") as summary:
-            summary.write("\\n## Visicom + OSM: overlap statistics\\n\\n")
-            summary.write(f'IoU threshold: {args.iou:.2f}; overlap threshold: {args.overlap:.2f}\\n\\n')
-            summary.write("| Best overlap | All OSM | Excluded | Added |\\n|---|---:|---:|---:|\\n")
+            summary.write("\n## Visicom + OSM: overlap statistics\n\n")
+            summary.write(f'IoU threshold: {args.iou:.2f}; overlap threshold: {args.overlap:.2f}\n\n')
+            summary.write("| Best overlap | All OSM | Excluded | Added |\n|---|---:|---:|---:|\n")
             for band in stats["ranges"]:
-                summary.write(f'| {band} | {stats["histogram"][band]} | {stats["excluded"][band]} | {stats["supplemental"][band]} |\\n')
-            summary.write(f'\\nNo overlap: {stats["noOverlap"]}. Ambiguous OSM: {stats["ambiguousOSM"]} (qualifying: {stats["ambiguousOSMQualifying"]}). Ambiguous Visicom: {stats["ambiguousVisicom"]} (qualifying: {stats["ambiguousVisicomQualifying"]}).\\n')
+                summary.write(f'| {band} | {stats["histogram"][band]} | {stats["excluded"][band]} | {stats["supplemental"][band]} |\n')
+            summary.write(f'\nNo overlap: {stats["noOverlap"]}. Ambiguous OSM: {stats["ambiguousOSM"]} (qualifying: {stats["ambiguousOSMQualifying"]}). Ambiguous Visicom: {stats["ambiguousVisicom"]} (qualifying: {stats["ambiguousVisicomQualifying"]}).\n')
 
 
 
