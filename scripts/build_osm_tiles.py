@@ -11,7 +11,7 @@ from collections import Counter
 from pathlib import Path
 
 import mercantile
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 from shapely.geometry import shape, box, Polygon, MultiPolygon, LineString, MultiLineString, GeometryCollection
 from shapely.strtree import STRtree
 
@@ -121,7 +121,7 @@ def parts(geom, types):
             yield from parts(g, types)
 
 
-def render_tile(tile, tree, features, font):
+def render_tile(tile, tree, features):
     image = Image.new("RGB", (TILE_SIZE, TILE_SIZE), COLORS["background"])
     draw = ImageDraw.Draw(image)
     west, south, east, north = mercantile.bounds(tile)
@@ -147,7 +147,6 @@ def render_tile(tile, tree, features, font):
              "grass": 4, "water": 5, "rail": 6, "path": 7,
              "minor": 8, "road": 9, "major": 10, "waterline": 11}
     candidates.sort(key=lambda row: order[row[1]])
-    labels = []
     for geom, kind, name in candidates:
         if kind in ("residential", "industrial", "forest", "park", "grass", "water"):
             for poly in parts(geom, (Polygon,)):
@@ -166,23 +165,6 @@ def render_tile(tile, tree, features, font):
                 if tile.z < 15 and kind in ("minor", "path"):
                     continue
                 draw.line(coords, fill=COLORS[kind], width=width, joint="curve")
-                if name and tile.z >= 16 and kind in ("major", "road", "minor"):
-                    line_len = math.dist(coords[0], coords[-1])
-                    if line_len > 55:
-                        mid = coords[len(coords) // 2]
-                        if 12 < mid[0] < 244 and 10 < mid[1] < 245:
-                            labels.append((mid, name))
-    # Limit labels to avoid excessive duplication/clutter.
-    placed = []
-    for (x, y), text in labels:
-        if any(abs(x - a) < 90 and abs(y - b) < 23 for a, b in placed):
-            continue
-        text = text[:28]
-        draw.text((x, y), text, font=font, fill=COLORS["text"],
-                  stroke_width=2, stroke_fill=COLORS["background"], anchor="mm")
-        placed.append((x, y))
-        if len(placed) == 6:
-            break
     return image
 
 
@@ -211,8 +193,6 @@ def main():
         raise RuntimeError("No usable OSM features; refusing to publish blank tiles")
     print("OSM features:", len(features), dict(categories), flush=True)
     tree = STRtree([row[0] for row in features])
-    fontpath = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-    font = ImageFont.truetype(fontpath, 11) if Path(fontpath).exists() else ImageFont.load_default()
     output = Path(args.out)
     count, per_zoom = 0, {}
     buffered_boundary = boundary.buffer(max(boundary.bounds[2] - boundary.bounds[0],
@@ -224,7 +204,7 @@ def main():
                 continue
             file = output / str(z) / str(tile.x) / f"{tile.y}.webp"
             file.parent.mkdir(parents=True, exist_ok=True)
-            image = render_tile(tile, tree, features, font)
+            image = render_tile(tile, tree, features)
             image.save(file, format="WEBP", quality=args.quality, method=4)
             current += 1
         per_zoom[str(z)] = current
