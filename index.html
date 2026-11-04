@@ -322,6 +322,23 @@ function roadLabelsOverlap(a,b){
  }
  return true;
 }
+function sliceRoadForLabel(points,startDistance,endDistance){
+ const result=[];
+ let total=0;
+ for(let i=1;i<points.length;i++){
+  const a=points[i-1],b=points[i],length=a.distanceTo(b),next=total+length;
+  if(length>0&&next>=startDistance&&total<=endDistance){
+   const from=Math.max(0,(startDistance-total)/length);
+   const to=Math.min(1,(endDistance-total)/length);
+   const first=a.add(b.subtract(a).multiplyBy(from)),last=a.add(b.subtract(a).multiplyBy(to));
+   if(!result.length||result[result.length-1].distanceTo(first)>.01)result.push(first);
+   if(last.distanceTo(result[result.length-1])>.01)result.push(last);
+  }
+  total=next;
+  if(total>=endDistance)break;
+ }
+ return result;
+}
 function buildStableStreetLabels(){
  const zoom=map.getZoom();
  if(stableStreetLabelZoom===zoom)return;
@@ -336,17 +353,30 @@ function buildStableStreetLabels(){
   let points=f.geometry.coordinates.map(([lon,lat])=>map.project([lat,lon],zoom));
   const first=points[0],last=points[points.length-1];
   if(first.x>last.x||(Math.abs(first.x-last.x)<1&&first.y<last.y))points=points.reverse();
-  const pos=roadLabelPosition(points);
-  if(!pos||pos.length<width+28)continue;
-  options.push({name,points,pos,width,id:String(f.properties?.id||'')});
+  const whole=roadLabelPosition(points);
+  const needed=width+36;
+  if(!whole||whole.length<needed)continue;
+  // Each long OSM way gets multiple fixed anchors. Short ways get one.
+  // Spacing is in world pixels at this zoom; it does not depend on the viewport.
+  const spacing=Math.max(360,width*2.7);
+  const count=Math.max(1,Math.round(whole.length/spacing));
+  const pad=needed/2;
+  for(let n=0;n<count;n++){
+   const center=whole.length*(n+.5)/count;
+   const start=Math.max(0,Math.min(whole.length-needed,center-pad));
+   const segment=sliceRoadForLabel(points,start,start+needed);
+   const pos=roadLabelPosition(segment);
+   if(!pos||pos.length<width+24)continue;
+   options.push({name,points:segment,pos,width,id:String(f.properties?.id||''),length:whole.length});
+  }
  }
- // Stable order independent of where the viewport currently is.
- options.sort((a,b)=>b.pos.length-a.pos.length||a.name.localeCompare(b.name,'uk')||a.id.localeCompare(b.id));
+ // Stable ordering: long streets first, then fixed tie-breaks.
+ options.sort((a,b)=>b.length-a.length||a.name.localeCompare(b.name,'uk')||a.id.localeCompare(b.id)||a.pos.mid.x-b.pos.mid.x||a.pos.mid.y-b.pos.mid.y);
  const occupied=[],byName=new Map();
  for(const candidate of options){
   const previous=byName.get(candidate.name)||[];
-  // Repeat a long street only at well-separated, fixed geographic positions.
-  if(previous.some(p=>p.distanceTo(candidate.pos.mid)<Math.max(480,candidate.width*3)))continue;
+  // Avoid duplicated labels where adjoining OSM ways form the same street.
+  if(previous.some(p=>p.distanceTo(candidate.pos.mid)<Math.max(250,candidate.width*2.2)))continue;
   const rect=roadLabelRect(candidate.pos,candidate.width);
   if(occupied.some(other=>roadLabelsOverlap(rect,other)))continue;
   stableStreetLabels.push(candidate);
