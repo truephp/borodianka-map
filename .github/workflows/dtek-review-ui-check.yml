@@ -1,0 +1,38 @@
+name: Verify DTEK address review UI
+
+on:
+  push:
+    branches: [feature/dtek-address-matching]
+    paths:
+      - 'index.html'
+      - '.github/workflows/dtek-review-ui-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  review-ui-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate inline map JavaScript and required controls
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          html = Path("index.html").read_text(encoding="utf-8")
+          script = re.findall(r"<script(?:\s[^>]*)?>([\s\S]*?)</script>", html)
+          assert len(script) == 1, f"Expected one inline script, found {len(script)}"
+          Path("/tmp/map-dtek-review.js").write_text(script[0], encoding="utf-8")
+          for item in ("dtekReviewSection","dtekReviewFile","dtekReviewEnable",
+                       "dtekReviewAddress","dtekReviewTarget","dtekReviewConfirm",
+                       "dtekReviewReject","dtekReviewReset","dtekReviewExport"):
+              assert 'id="' + item + '"' in html, f"Missing control: {item}"
+          assert "dtekReviewStatuses" in script[0]
+          print("DTEK review UI structure OK")
+          PY
+          node --check /tmp/map-dtek-review.js
