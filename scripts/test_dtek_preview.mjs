@@ -42,6 +42,23 @@ try{
  await page.locator("#visicomPassword").dispatchEvent("change");
  await page.waitForFunction(()=>document.querySelector("#dtekReviewStatus").textContent.includes("Завантажено 1"),null,{timeout:20000});
  console.log("PASS: same-site encrypted report loaded automatically after password entry");
+ if(await page.locator("#showStreetColors").isChecked())throw Error("Demo street color overlay should be disabled by default");
+ if(!await page.locator("#dtekPresenceEnable").isChecked())throw Error("DTEK buildings should be highlighted by default");
+ await page.evaluate(()=>{
+  applyVisicomFeatures({type:"FeatureCollection",metadata:{mergedBuildings:true,visicom:1,osmSupplemental:0,osmSkippedOverlap:0},features:[{
+   type:"Feature",geometry:{type:"Polygon",coordinates:[[[29.61,50.63],[29.6102,50.63],[29.6102,50.6302],[29.61,50.6302],[29.61,50.63]]]},
+   properties:{source:"visicom",sourceId:"test-v1",visicomId:"test-v1",street:"Центральна",name:"427а",housenumber:"427а"}
+  }]});
+ });
+ await page.waitForFunction(()=>document.querySelector("#dtekPresenceStatus").textContent.includes("Підсвічено 1"),null,{timeout:20000});
+ const popupCount=await page.evaluate(()=>{
+  let text="";
+  dtekPresenceLayer.eachLayer(layer=>layer.eachLayer(polygon=>{text+=polygon.getPopup()?.getContent()?.textContent||"";}));
+  return text;
+ });
+ if(!popupCount.includes("вул. Центральна")||!popupCount.includes("427а")||!popupCount.includes("ДТЕК"))throw Error("DTEK building popup lacks address and source label");
+ console.log("PASS: default no street colors; DTEK buildings highlighted with clickable address popup");
+
  await page.locator("#dtekReviewFile").setInputFiles({
   name:"synthetic-dtek-review.enc.json",
   mimeType:"application/json",
