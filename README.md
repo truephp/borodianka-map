@@ -157,7 +157,7 @@ python scripts/build_osm_tiles.py --input borodianka.geojsonseq --out dist/tiles
 
 Workflow **Build Unified Visicom + OSM Buildings** (`.github/workflows/visicom-merge-buildings.yml`) готує один *зашифрований* GeoJSON для режиму «Єдиний шар будівель». `adr_street` не імпортується.
 
-**Джерела:** `data/buildings.geojson` (OSM у репозиторії), `data/boundary.geojson` (контур Бородянки), повний зашифрований Visicom Feature Export (усі отримані полігони `adr_address`). За відсутності актуального артефакту Visicom workflow сам виконує discovery та запити Feature API; для повторного використання наявного артефакту вкажіть його `visicom_run_id`. Зверніть увагу: старі GitHub Actions artifacts можуть бути видалені після закінчення retention.
+**Джерела:** `data/buildings.geojson` (OSM у репозиторії), `data/boundary.geojson` (контур Бородянки), повний зашифрований Visicom Feature Export (усі отримані полігони `adr_address`). Якщо `visicom_run_id` порожній, workflow завантажує зашифрований файл із R2 (`borodianka/source/visicom-buildings.enc.json`) і **не звертається до Visicom API**. Для разового використання GitHub Actions artifact можна вказати `visicom_run_id`. Оновлення геометрії через API виконується лише окремим явним імпортом. Зверніть увагу: старі GitHub Actions artifacts можуть бути видалені після закінчення retention.
 
 Для кожної OSM-будівлі шукається просторовий перетин з Visicom. **Якщо хоча б один** контур Visicom має IoU ≥ `confident_iou` **або** перекриття меншого полігона ≥ `overlap_threshold`, OSM-контур не додається до результату. За замовчуванням пороги `0.35` та `0.80`. Інші OSM-будівлі додаються, у тому числі ті, що частково перетинаються нижче порогів, зі статусом `partial_overlap`. Якщо перетину немає — `no_overlap`.
 
@@ -166,3 +166,7 @@ Workflow **Build Unified Visicom + OSM Buildings** (`.github/workflows/visicom-m
 **Результат:** GitHub Actions artifact `borodianka-unified-buildings` із файлом `borodianka-buildings.enc.json`. Файл зашифровано тим самим `VISICOM_EXPORT_PASSWORD`; у публічний репозиторій чи GitHub Pages він не потрапляє. Завантажте його через наявний імпортер Visicom на карті, введіть пароль. Режим єдиного шару ввімкнеться автоматично. Зашифрований файл кешується у IndexedDB, тому при наступному відкритті не потрібно обирати його повторно. Розрахунок перетинів вже виконаний у GitHub Actions; **зміна порогів у браузері не впливає на готовий об'єднаний набір** — для інших порогів перезапустіть workflow. Для діагностики IoU/конфліктів, як і раніше, можна завантажити сирий зашифрований експорт Visicom.
 
 Використання геометрії Visicom наразі обмежене погодженим проєктом карт енергопостачання Бучанського району; перед окремою публікацією необмеженого raw GeoJSON перевіряйте умови погодження.
+
+### Архів вихідного Visicom GeoJSON у R2
+
+Одноразовий bootstrap зроблено через тимчасовий зашифрований `visicom-buildings.enc.json` у GitHub. Workflow `Archive Encrypted Visicom Export to R2` перевіряє контейнер, завантажує у `s3://boromap/borodianka/source/visicom-buildings.enc.json`, завантажує його назад і звіряє байти. Лише після успішної перевірки GitHub Actions видаляє тимчасовий файл із поточної гілки. **Видалення комітом не стирає Git-історію** — там залишається тільки зашифрований контейнер. Дані R2 читаються надалі через S3 API із GitHub Actions secrets.
