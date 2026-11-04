@@ -20,14 +20,16 @@ change the production Leaflet map or publish Visicom plaintext.
   No Visicom geometry or plaintext derived links are committed to git.
 - House numbers are **not** merged across Cyrillic/Latin or slash variants.
   Uncertain spellings such as `1/А` ↔ `1A` are review-only.
-- Exact status requires a matching street **type**, name and conservative
-  house number, with a unique building. A Visicom address without road type
-  cannot receive automatic exact status. Instead it appears as
-  `candidate_street_type`. Similar numbers yield
-  `candidate_street_and_house_format`.
-- The count of candidate matches is **not** a count of confirmed outage
-  addresses. Some streets and lanes share a bare name. Any candidate needs
-  review against the building geometry and original address.
+- **Current matcher (schemaVersion 2):** a Visicom address without a street
+  type is eligible for an **exact** match when normalized street name and
+  conservative house number are equal, exactly one physical contour matches,
+  and no explicit conflicting street/lane type is present in OSM road names,
+  either DTEK street directory, or typed building addresses. A missing street
+  type alone is **not** a conflict.
+- Explicitly different street types (street versus lane), competing names,
+  multiple matching contours, and spelling-only matches remain subject to
+  review. Ambiguous matches are not promoted automatically. Uncertain
+  Cyrillic/Latin letter or slash variations remain review-only.
 
 ## Seven common street labels: first comparison
 
@@ -97,3 +99,37 @@ street or lane; `candidate_street_and_house_format` further relaxes
 spelling of house suffix/slash. Manual validation must follow before
 rendering per-building DTEK statuses. Ambiguous multi-feature matches also
 need resolution. The two DTEK city keys remain independent in all records.
+
+## Revised matching after accepting untyped Visicom names — 4 November 2026
+
+Run [41910246449](https://github.com/truephp/borodianka-map/actions/runs/41910246449)
+completed successfully against the **same** original complete DTEK artifact
+from run 41908662069, without fetching DTEK again. All 11 unit tests passed.
+
+| Match class | Public OSM | Unified Visicom + OSM |
+|---|---:|---:|
+| One unambiguous exact address match | 62 | **1,837** |
+| Several matching outlines (ambiguous) | 13 | 73 |
+| House spelling variant, review only | 13 | 50 |
+| Street type ambiguous, review only | 0 | 60 |
+| Both street type and house spelling uncertain | 0 | 1 |
+| Not matched | 2,868 | 935 |
+| **Total DTEK records** | **2,956** | **2,956** |
+
+**1,837 / 2,956 = 62.1%** of DTEK *records* have unique strict address
+matches in the unified layer. This is not 62.1% of distinct physical
+buildings, nor evidence of electricity supply status. There are 184
+review-required records (73+50+60+1) and 935 unmatched records.
+
+The algorithm checks all explicit street/lane types for the normalized
+name in OSM road features, both independently keyed DTEK settlement
+directories, and typed buildings. Example: `Центральна` (Visicom)
+can exactly match `вул. Центральна` (DTEK), assuming a unique
+house number and no street/lane conflict. `Жиліна` without
+a type cannot automatically match `вул. Жиліна` when a
+`пров. Жиліна` also exists. When two building outlines share one
+address, status remains `multiple` rather than `exact`.
+
+All detailed Visicom-linked results remain encrypted. Counts above are
+safe aggregate diagnostics. The main branch and published map have not
+been changed.
