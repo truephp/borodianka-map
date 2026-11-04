@@ -12,8 +12,8 @@
 <p class="status" id="status" role="status">Завантажуємо локальні OSM-дані…</p>
 <div class="body" id="body" hidden><label><input type="checkbox" id="inspectBuildings"> Діагностика будівель: вибір на карті</label><label><input type="checkbox" id="visicomColorMode"> Забарвлення за збігами Visicom / OSM</label><div id="visicomLegend" class="small">Потрібно завантажити зашифрований файл Visicom.</div><label>Зашифрований JSON Visicom <input id="visicomImport" type="file" accept=".json,application/json"></label><label>URL об'єднаних будівель у R2 <input id="unifiedBuildingsUrl" type="url" placeholder="https://YOUR-R2-DOMAIN/borodianka/data/borodianka-buildings.enc.json" style="width:100%;padding:8px;background:#263b56;color:#fff;border:1px solid #48617f;border-radius:8px"><span class="small">Якщо URL не задано, адреса автоматично визначається з налаштованої R2-підкладки.</span></label><label>Пароль експорту (cookie на 24 години) <input type="password" id="visicomPassword" autocomplete="off" placeholder="VISICOM_EXPORT_PASSWORD"></label><label><input type="checkbox" id="showVisicomPolygons" checked> Показувати полігони Visicom (фіолетові)</label><button type="button" id="clearVisicomPolygons">Очистити полігони Visicom</button><label><input type="checkbox" id="unifiedBuildings"> Єдиний шар будівель (Visicom + OSM без дублікатів)</label><div id="unifiedStats" class="small">Для об'єднання завантаж полігони Visicom.</div><label><input type="checkbox" id="showGeometryMatches"> Порівняти геометрію OSM / Visicom (IoU ≥ 0,65)</label><label>Впевнений IoU: <output id="iouHighValue">0.65</output><input id="iouHigh" type="range" min="0.35" max="0.9" step="0.05" value="0.65"></label><label>Ймовірний IoU: <output id="iouMediumValue">0.30</output><input id="iouMedium" type="range" min="0.15" max="0.6" step="0.05" value="0.30"></label><label>Слабкий IoU: <output id="iouLowValue">0.10</output><input id="iouLow" type="range" min="0.05" max="0.3" step="0.05" value="0.10"></label><label>Перекриття меншого контуру: <output id="overlapValue">0.80</output><input id="overlapThreshold" type="range" min="0.5" max="1" step="0.05" value="0.80"></label><label><input type="checkbox" id="clipVisicomBoundary" checked> Лише полігони в межах Бородянки</label><label><input type="checkbox" id="showGeometryConflicts"> Виділити конфлікти зіставлення</label><div id="conflictStats" class="small">Конфлікти ще не обчислені.</div><div id="geometryStats" class="small">Порівняння ще не виконано.</div><button type="button" id="restoreVisicomCache">Завантажити будівлі з R2 / відкрити кеш</button><div id="visicomImportStatus" class="small">Дані ще не завантажені. Зашифрований файл отримується з R2, розшифровується тільки в браузері.</div><div id="dtekReviewSection" style="border:1px solid #48617f;border-radius:10px;padding:10px;margin:12px 0">
 <strong>ДТЕК — перевірка адрес</strong>
-<div class="small">Завантаж зашифрований файл dtek-all-unified-matches.enc.json із GitHub Actions. Дані розшифровуються в браузері; рішення експортуються окремим JSON.</div>
-<label>Зашифрований звіт ДТЕК <input id="dtekReviewFile" type="file" accept=".json,application/json"></label>
+<div class="small">Звіт ДТЕК завантажується із сайту автоматично. Для його розшифрування використовується пароль Visicom. Рішення можна експортувати окремим JSON.</div>
+<label>Ручний імпорт звіту (необов'язково) <input id="dtekReviewFile" type="file" accept=".json,application/json"></label>
 <label><input type="checkbox" id="dtekReviewEnable"> Підсвітити неоднозначні адреси</label>
 <div id="dtekReviewStatus" class="small" role="status">Звіт ще не завантажено.</div>
 <label>Адреса ДТЕК
@@ -614,26 +614,48 @@ function dtekReviewDraw(){
  else if(!premergedBuildings)dtekReviewStatus.textContent='Завантаж звіт і об’єднані будівлі Visicom з R2 для підсвічування контурів.';
  else if(drawn===0)dtekReviewStatus.textContent='Не знайдено контурів для поточної адреси. Перевір, чи відкрито той самий набір будівель.';
 }
+let dtekReviewEnvelope=null;
+async function dtekReviewUseEnvelope(envelope){
+ if(envelope.version!==1||envelope.kdf!=='PBKDF2-SHA256')throw Error('Потрібен зашифрований *.enc.json');
+ if(!visicomPasswordInput.value)throw Error('Введи пароль Visicom для відкриття звіту');
+ const report=await decryptVisicomFile(envelope,visicomPasswordInput.value);
+ if(report.schemaVersion!==2||!Array.isArray(report.records))throw Error('Непідтримуваний формат звіту: очікується schemaVersion 2');
+ const records=report.records.filter(r=>dtekReviewStatuses.has(r.status)&&Array.isArray(r.links)&&r.house&&r.city&&r.street);
+ dtekReviewRecords=records;
+ dtekReviewSelected=-1;
+ dtekReviewDecisions.clear();
+ dtekReviewAddress.replaceChildren(new Option('Оберіть адресу',''));
+ const entries=[...records.entries()].sort((a,b)=>([a[1].street,a[1].house,a[1].city].join(' ')).localeCompare([b[1].street,b[1].house,b[1].city].join(' '),'uk'));
+ for(const [i,r] of entries)dtekReviewAddress.add(new Option([r.city,r.street,r.house].join(' · ')+' ['+r.status+']',String(i)));
+ dtekReviewEnable.checked=true;
+ dtekReviewStatus.textContent='Завантажено '+records.length+' неоднозначних адрес. Обери адресу або натисни кольоровий контур.';
+ dtekReviewCount();dtekReviewDisplay();
+}
+async function dtekReviewAutoLoad(){
+ try{
+  if(!dtekReviewEnvelope){
+   dtekReviewStatus.textContent='Завантаження звіту ДТЕК із сайту…';
+   const res=await fetch('./data/dtek-all-unified-matches.enc.json',{cache:'no-cache'});
+   if(!res.ok)throw Error('HTTP '+res.status+' під час завантаження звіту');
+   dtekReviewEnvelope=await res.json();
+  }
+  if(!visicomPasswordInput.value){
+   dtekReviewStatus.textContent='Звіт ДТЕК завантажено. Введи пароль Visicom для розшифрування.';
+   return;
+  }
+  await dtekReviewUseEnvelope(dtekReviewEnvelope);
+ }catch(err){dtekReviewStatus.textContent='Звіт ДТЕК: '+err.message;}
+}
 dtekReviewFile.addEventListener('change',async e=>{
  const file=e.target.files?.[0];if(!file)return;
  try{
   if(file.size>30e6)throw Error('Звіт перевищує 30 MB');
-  const envelope=JSON.parse(await file.text());
-  if(envelope.version!==1||envelope.kdf!=='PBKDF2-SHA256')throw Error('Потрібен зашифрований *.enc.json з GitHub Actions');
-  const report=await decryptVisicomFile(envelope,visicomPasswordInput.value);
-  if(report.schemaVersion!==2||!Array.isArray(report.records))throw Error('Непідтримуваний формат звіту: очікується schemaVersion 2');
-  const records=report.records.filter(r=>dtekReviewStatuses.has(r.status)&&Array.isArray(r.links)&&r.house&&r.city&&r.street);
-  dtekReviewRecords=records;
-  dtekReviewSelected=-1;
-  dtekReviewDecisions.clear();
-  dtekReviewAddress.replaceChildren(new Option('Оберіть адресу',''));
-  const entries=[...records.entries()].sort((a,b)=>([a[1].street,a[1].house,a[1].city].join(' ')).localeCompare([b[1].street,b[1].house,b[1].city].join(' '),'uk'));
-  for(const [i,r] of entries)dtekReviewAddress.add(new Option([r.city,r.street,r.house].join(' · ')+' ['+r.status+']',String(i)));
-  dtekReviewEnable.checked=true;
-  dtekReviewStatus.textContent='Завантажено '+records.length+' неоднозначних адрес. Обери адресу або натисни кольоровий контур.';
-  dtekReviewCount();dtekReviewDisplay();
+  dtekReviewEnvelope=JSON.parse(await file.text());
+  await dtekReviewAutoLoad();
  }catch(err){dtekReviewStatus.textContent='Не вдалося відкрити звіт: '+err.message;}
 });
+visicomPasswordInput.addEventListener('change',()=>{if(!dtekReviewRecords.length)dtekReviewAutoLoad();});
+dtekReviewAutoLoad();
 dtekReviewEnable.addEventListener('change',dtekReviewDraw);
 dtekReviewAddress.addEventListener('change',()=>{
  dtekReviewSelected=dtekReviewAddress.value===''?-1:Number(dtekReviewAddress.value);
