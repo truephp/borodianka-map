@@ -44,10 +44,26 @@ class AddressMatchingTests(unittest.TestCase):
             dtek("смт Бородянка", "вул. Жиліна", ["2"]),
         ]
         result = match_houses(records, buildings)
-        self.assertEqual(result["counts"], {"exact": 3, "candidate": 2, "unmatched": 1})
+        self.assertEqual(result["counts"], {"exact": 3, "candidate_house_format": 2, "unmatched": 1})
         exact = next(x for x in result["records"] if x.get("street") == "вул. Жиліна")
         self.assertEqual(exact["links"][0]["id"], "3")
         self.assertEqual(exact["links"][0]["source"], "osm")
+
+    def test_visicom_missing_street_type_is_candidate(self):
+        buildings = list(address_records({"features": [
+            feature("visicom", "v1", "Заводська", "1А"),
+            feature("visicom", "v2", "Ветеранів", "1/А")
+        ]}))
+        report = match_houses([
+            dtek("с-ще Бородянка", "вул. Заводська", ["1А"]),
+            dtek("смт Бородянка", "вул. Ветеранів", ["1A"]),
+        ], buildings)
+        self.assertEqual(report["counts"], {
+            "candidate_street_type": 1,
+            "candidate_street_and_house_format": 1,
+        })
+        self.assertTrue(all("links" in r for r in report["records"]))
+        self.assertEqual(report["records"][0]["links"][0]["id"], "v1")
 
     def test_duplicates_are_not_exact(self):
         buildings = list(address_records({"features": [
