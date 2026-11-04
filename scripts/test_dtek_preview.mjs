@@ -15,6 +15,7 @@ try{
  for(const id of inputs){
   if(await page.locator("#"+id).count()!==1)throw Error("Missing "+id);
  }
+ await page.evaluate(()=>{document.querySelector("#body").hidden=false;for(const group of document.querySelectorAll("details.setting-section"))group.open=true;});
  await page.locator("#visicomPassword").fill("local-synthetic-test-only");
  const envelope=await page.evaluate(async()=>{
   const sample={schemaVersion:2,counts:{candidate_street_type:1},records:[
