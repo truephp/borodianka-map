@@ -141,6 +141,30 @@ def main(argv=None):
         raise ValueError("Aliases must be a JSON object")
     result = match_houses(raw["responses"], buildings, aliases)
     result["buildingSources"] = dict(Counter(b["source"] for b in buildings))
+    # Aggregate-only diagnostics: never expose decrypted Visicom addresses.
+    source_names = {b["streetKey"] for b in buildings}
+    source_typed_names = {(b["kind"], b["streetKey"]) for b in buildings}
+    source_houses = {b["houseKey"] for b in buildings}
+    source_candidate_houses = {house_candidate_key(b["house"]) for b in buildings}
+    source_pairs = {(b["streetKey"], b["houseKey"]) for b in buildings}
+    source_candidate_pairs = {(b["streetKey"], house_candidate_key(b["house"])) for b in buildings}
+    measurements = Counter()
+    for r in result["records"]:
+        if "house" not in r:
+            continue
+        street_type, street_name = street_key(r["street"])
+        name_alias = aliases.get(f'{r["city"]}|{r["street"]}')
+        if name_alias:
+            street_type, street_name = street_key(name_alias)
+        house = house_key(r["house"])
+        measurements["dtekTotal"] += 1
+        measurements["streetNameFound"] += street_name in source_names
+        measurements["streetNameAndTypeFound"] += (street_type, street_name) in source_typed_names
+        measurements["houseNumberAnywhereFound"] += house in source_houses
+        measurements["houseNumberVariantAnywhereFound"] += house_candidate_key(r["house"]) in source_candidate_houses
+        measurements["nameAndHouseIgnoringTypeFound"] += (street_name, house) in source_pairs
+        measurements["nameAndHouseVariantIgnoringTypeFound"] += (street_name, house_candidate_key(r["house"])) in source_candidate_pairs
+    result["diagnosticCounts"] = dict(measurements)
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     if private:
@@ -151,6 +175,7 @@ def main(argv=None):
                "sourceErrors": result["counts"].get("source_error", 0),
                "counts": result["counts"], "buildingsWithAddress": len(buildings),
                "buildingSources": result["buildingSources"],
+               "diagnosticCounts": result["diagnosticCounts"],
                "encryptedDetailedReport": private}
     if args.summary:
         Path(args.summary).write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
