@@ -1,0 +1,68 @@
+name: Archive Encrypted Visicom Export to R2
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'visicom-buildings.enc.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: archive-visicom-export
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+      R2_BUCKET: ${{ vars.R2_BUCKET }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_FILE: visicom-buildings.enc.json
+      OBJECT_KEY: borodianka/source/visicom-buildings.enc.json
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate archive and R2 configuration
+        run: |
+          python - <<'PY'
+          import json,os,base64
+          path=os.environ['SOURCE_FILE']
+          if not os.path.isfile(path): raise SystemExit('Encrypted source file missing')
+          for name in ('R2_ACCOUNT_ID','R2_BUCKET','AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY'):
+              if not os.environ.get(name): raise SystemExit('Missing '+name)
+          with open(path,encoding='utf-8') as f: env=json.load(f)
+          if env.get('version')!=1 or env.get('kdf')!='PBKDF2-SHA256' or env.get('iterations')!=210000:
+              raise SystemExit('Unexpected encryption envelope')
+          for name in ('salt','iv','data'):
+              base64.b64decode(env[name],validate=True)
+          print('Encrypted file validated (ciphertext not decrypted).')
+          PY
+      - name: Install AWS CLI
+        run: python -m pip install --disable-pip-version-check 'awscli>=1.40,<3'
+      - name: Upload encrypted export to R2 and verify exact bytes
+        run: |
+          set -euo pipefail
+          endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          aws s3 cp "$SOURCE_FILE" "s3://${R2_BUCKET}/${OBJECT_KEY}" --endpoint-url "$endpoint" \
+            --content-type application/json --cache-control 'private, no-store' --no-progress
+          aws s3 cp "s3://${R2_BUCKET}/${OBJECT_KEY}" "$RUNNER_TEMP/retrieved.enc.json" \
+            --endpoint-url "$endpoint" --no-progress
+          cmp --silent "$SOURCE_FILE" "$RUNNER_TEMP/retrieved.enc.json"
+          sha256sum "$SOURCE_FILE"
+          echo "R2 verification succeeded: ${OBJECT_KEY}"
+      - name: Delete temporary file from default branch after verification
+        if: success()
+        run: |
+          set -euo pipefail
+          sha="$(gh api "repos/${GITHUB_REPOSITORY}/contents/${SOURCE_FILE}" --jq .sha)"
+          gh api --method DELETE "repos/${GITHUB_REPOSITORY}/contents/${SOURCE_FILE}" \
+            -f message="chore: remove encrypted Visicom bootstrap export after R2 archival" \
+            -f sha="$sha" \
+            -f branch="$GITHUB_REF_NAME" >/dev/null
+          echo "Temporary file removed from current branch (Git history remains)."
