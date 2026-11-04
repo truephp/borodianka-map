@@ -150,7 +150,20 @@ def match_houses(responses, building_records, aliases=None, roads=None, director
                 else:
                     status, matches = "unmatched", []
             counts[status] += 1
+            source_data = entry["response"].get("data")
+            # The data dictionary keys are original house numbers; normalized
+            # keys are only for matching, not for retrieving status payloads.
+            house_fields = {}
+            if isinstance(source_data, dict):
+                for original_number, payload in source_data.items():
+                    if house_key(original_number) == house_key(house) and isinstance(payload, dict):
+                        house_fields = {k: payload[k] for k in (
+                            "cek", "start_date", "end_date", "sub_type",
+                            "sub_type_reason", "type", "voluntarily"
+                        ) if k in payload}
+                        break
             out.append({"city": city, "street": street, "house": house, "status": status,
+                        "dtek": house_fields,
                         "links": [{"source": b["source"], "id": b["id"],
                                    "street": b["street"], "house": b["house"]} for b in matches]})
     return {"schemaVersion": 2, "counts": dict(counts), "records": out}
