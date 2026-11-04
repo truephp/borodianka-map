@@ -17,7 +17,7 @@ on:
         description: Immutable tile-set version, e.g. v1 or 2026-11
         required: true
         type: string
-        default: v1
+        default: v2
       publish:
         description: Upload resulting tiles to Cloudflare R2 (requires secrets and variables)
         required: true
