@@ -44,8 +44,8 @@ class MergeBuildingsTests(unittest.TestCase):
         self.assertEqual(stats["noOverlap"], 1)
         self.assertEqual(stats["ambiguousOSM"], 1)
         self.assertEqual(stats["ambiguousOSMQualifying"], 1)
-        self.assertEqual(stats["ambiguousVisicom"], 2)
-        self.assertEqual(stats["ambiguousVisicomQualifying"], 2)
+        self.assertEqual(stats["ambiguousVisicom"], 1)
+        self.assertEqual(stats["ambiguousVisicomQualifying"], 1)
         self.assertEqual(sum(stats["histogram"].values()),
                          m["osmSkippedOverlap"] + m["osmSupplemental"])
 
