@@ -1,0 +1,83 @@
+name: Build Unified Visicom + OSM Buildings
+on:
+  workflow_dispatch:
+    inputs:
+      visicom_run_id:
+        description: Optional Visicom Full Feature Export run ID (must have available artifact); empty = retrieve fresh Visicom data
+        required: false
+        default: ''
+        type: string
+      confident_iou:
+        description: Hide OSM when IoU is at least this value
+        required: true
+        default: '0.35'
+        type: string
+      overlap_threshold:
+        description: Hide OSM when smaller-contour overlap reaches this value
+        required: true
+        default: '0.80'
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install geometry and encryption libraries
+        run: python -m pip install --disable-pip-version-check 'shapely>=2,<3' 'cryptography>=43,<47'
+      - name: Reuse existing encrypted Visicom export
+        if: inputs.visicom_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: visicom-buildings
+          run-id: ${{ inputs.visicom_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/visicom-source
+      - name: Discover Visicom addresses afresh
+        if: inputs.visicom_run_id == ''
+        env:
+          VISICOM_API_KEY: ${{ secrets.VISICOM_API_KEY }}
+          VISICOM_EXPORT_PASSWORD: ${{ secrets.VISICOM_EXPORT_PASSWORD }}
+          VISICOM_IDS_ONLY: '1'
+          VISICOM_MAX_CELLS: '1500'
+          VISICOM_EXPORT_PATH: ${{ runner.temp }}/visicom-source/index.enc.json
+        run: node scripts/visicom-spatial.mjs
+      - name: Fetch all Visicom polygons afresh
+        if: inputs.visicom_run_id == ''
+        env:
+          VISICOM_API_KEY: ${{ secrets.VISICOM_API_KEY }}
+          VISICOM_EXPORT_PASSWORD: ${{ secrets.VISICOM_EXPORT_PASSWORD }}
+          VISICOM_INDEX_FILE: ${{ runner.temp }}/visicom-source/index.enc.json
+          VISICOM_EXPORT_PATH: ${{ runner.temp }}/visicom-source/visicom-buildings.enc.json
+          VISICOM_CHECKPOINT_PATH: ${{ runner.temp }}/visicom-source/checkpoint.enc.json
+        run: node scripts/visicom-full-features.mjs
+      - name: Merge and encrypt unified buildings (do not commit Visicom data)
+        env:
+          VISICOM_EXPORT_PASSWORD: ${{ secrets.VISICOM_EXPORT_PASSWORD }}
+          IOU: ${{ inputs.confident_iou }}
+          OVERLAP: ${{ inputs.overlap_threshold }}
+        run: |
+          python -m py_compile scripts/merge_buildings.py
+          python scripts/merge_buildings.py \
+            --visicom "$RUNNER_TEMP/visicom-source/visicom-buildings.enc.json" \
+            --osm data/buildings.geojson --boundary data/boundary.geojson \
+            --iou "$IOU" --overlap "$OVERLAP" \
+            --output "$RUNNER_TEMP/unified/borodianka-buildings.enc.json"
+      - name: Upload encrypted unified buildings for map
+        uses: actions/upload-artifact@v4
+        with:
+          name: borodianka-unified-buildings
+          path: ${{ runner.temp }}/unified/borodianka-buildings.enc.json
+          retention-days: 7
+          if-no-files-found: error
