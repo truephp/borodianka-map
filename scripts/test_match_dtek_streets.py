@@ -20,7 +20,7 @@ class DtekStreetMatchingTests(unittest.TestCase):
         raw = {"streets": {"с-ще Бородянка": ["вул. Семашка", "Центральна"],
                             "с. Берестянка": ["Шкільна"]}}
         self.assertEqual(load_dtek_streets(raw, "с-ще Бородянка"),
-                         ["вул. Семашка", "Центральна"])
+                         ["Центральна", "вул. Семашка"])
         with self.assertRaises(ValueError):
             load_dtek_streets(raw, "Бородянка")
 
