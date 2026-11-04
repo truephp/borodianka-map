@@ -4,7 +4,7 @@ on:
     branches: [main]
   workflow_dispatch:
   workflow_run:
-    workflows: ["Import OSM data"]
+    workflows: ["Import OSM data", "DTEK KREM all Borodianka addresses vs buildings"]
     types: [completed]
     branches: [main]
 permissions:
@@ -29,15 +29,19 @@ jobs:
       - name: Include encrypted DTEK matching report on the same site
         uses: actions/download-artifact@v4
         with:
-          name: dtek-building-address-audit
-          run-id: 41910246449
+          name: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.name == 'DTEK KREM all Borodianka addresses vs buildings' && 'dtek-borodianka-full-address-audit' || 'dtek-building-address-audit' }}
+          run-id: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.name == 'DTEK KREM all Borodianka addresses vs buildings' && github.event.workflow_run.id || 41910246449 }}
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/dtek-review
       - name: Install DTEK report without exposing decrypted Visicom records
         run: |
           set -euo pipefail
-          test -s "$RUNNER_TEMP/dtek-review/dtek-visicom-address-matches.enc.json"
-          cp "$RUNNER_TEMP/dtek-review/dtek-visicom-address-matches.enc.json" data/dtek-all-unified-matches.enc.json
+          source="$RUNNER_TEMP/dtek-review/dtek-all-unified-matches.enc.json"
+          if [ ! -s "$source" ]; then
+            source="$RUNNER_TEMP/dtek-review/dtek-visicom-address-matches.enc.json"
+          fi
+          test -s "$source"
+          cp "$source" data/dtek-all-unified-matches.enc.json
           python - <<'PY'
           import json
           with open("data/dtek-all-unified-matches.enc.json", encoding="utf-8") as f:
