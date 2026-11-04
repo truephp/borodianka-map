@@ -19,18 +19,18 @@ STREET_TYPES = (
     r"просп\\.?", r"площа", r"пл\\.?", r"бульвар", r"бульв\\.?",
     r"узвіз", r"шосе", r"дорога", r"набережна", r"алея",
 )
-TYPE_PATTERN = re.compile(r"^(?:" + "|".join(STREET_TYPES) + r")\\s+", re.I)
-TRAILING_TYPE_PATTERN = re.compile(r"\\s+(?:" + "|".join(STREET_TYPES) + r")$", re.I)
+TYPE_PATTERN = re.compile(r"^(?:" + "|".join(STREET_TYPES) + r")\s+", re.I)
+TRAILING_TYPE_PATTERN = re.compile(r"\s+(?:" + "|".join(STREET_TYPES) + r")$", re.I)
 
 
 def normalize_street(value):
     s = unicodedata.normalize("NFKC", str(value or "")).casefold()
     s = s.replace("’", "'").replace("ʼ", "'").replace("‘", "'")
     s = re.sub(r"[.,]", " ", s)
-    s = re.sub(r"\\s+", " ", s).strip()
+    s = re.sub(r"\s+", " ", s).strip()
     s = TYPE_PATTERN.sub("", s)
     s = TRAILING_TYPE_PATTERN.sub("", s)
-    return re.sub(r"\\s+", " ", s).strip()
+    return re.sub(r"\s+", " ", s).strip()
 
 
 def load_dtek_streets(raw, city=None):
