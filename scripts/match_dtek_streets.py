@@ -106,7 +106,7 @@ def main(argv=None):
     except (ValueError, KeyError, OSError, json.JSONDecodeError) as exc:
         print("DTEK comparison failed: " + str(exc), file=sys.stderr)
         return 1
-    output = json.dumps(report, ensure_ascii=False, indent=2) + "\\n"
+    output = json.dumps(report, ensure_ascii=False, indent=2) + "\n"
     if args.output:
         path = Path(args.output)
         path.parent.mkdir(parents=True, exist_ok=True)
