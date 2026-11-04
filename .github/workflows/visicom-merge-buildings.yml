@@ -1,5 +1,12 @@
 name: Build Unified Visicom + OSM Buildings
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/visicom-merge-buildings.yml'
+      - 'scripts/merge_buildings.py'
+      - 'scripts/test_merge_buildings.py'
+      - 'data/buildings.geojson'
   workflow_dispatch:
     inputs:
       visicom_run_id:
@@ -17,6 +24,10 @@ on:
         required: true
         default: '0.80'
         type: string
+
+concurrency:
+  group: unified-buildings-r2
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -39,7 +50,7 @@ jobs:
       - name: Test encrypted merge and geometry rules
         run: python -m unittest scripts.test_merge_buildings -v
       - name: Reuse existing encrypted Visicom export
-        if: inputs.visicom_run_id != ''
+        if: github.event_name == 'workflow_dispatch' && inputs.visicom_run_id != ''
         uses: actions/download-artifact@v4
         with:
           name: visicom-buildings
@@ -47,7 +58,7 @@ jobs:
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/visicom-source
       - name: Download encrypted Visicom export from R2 (no Visicom API calls)
-        if: inputs.visicom_run_id == ''
+        if: github.event_name != 'workflow_dispatch' || inputs.visicom_run_id == ''
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_BUCKET: ${{ vars.R2_BUCKET }}
@@ -66,8 +77,8 @@ jobs:
       - name: Merge and encrypt unified buildings (do not commit Visicom data)
         env:
           VISICOM_EXPORT_PASSWORD: ${{ secrets.VISICOM_EXPORT_PASSWORD }}
-          IOU: ${{ inputs.confident_iou }}
-          OVERLAP: ${{ inputs.overlap_threshold }}
+          IOU: ${{ inputs.confident_iou || '0.35' }}
+          OVERLAP: ${{ inputs.overlap_threshold || '0.80' }}
         run: |
           python -m py_compile scripts/merge_buildings.py
           python scripts/merge_buildings.py \
