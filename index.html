@@ -550,7 +550,21 @@ const dtekReviewLayer=L.layerGroup().addTo(map);
 const dtekPresenceLayer=L.layerGroup().addTo(map);
 const dtekPresenceEnable=document.getElementById('dtekPresenceEnable');
 const dtekPresenceStatus=document.getElementById('dtekPresenceStatus');
-let dtekPresenceRecords=[];
+let dtekPresenceRecords=[],dtekSourceFetchedAt=null;
+const dtekHouseFields=['cek','start_date','end_date','sub_type','sub_type_reason','type','voluntarily'];
+function appendDtekFields(popup,record){
+ const fields=record.dtek||{};
+ for(const key of dtekHouseFields){
+  const line=document.createElement('div');
+  const label=document.createElement('code');
+  label.textContent=key;
+  const value=Object.hasOwn(fields,key)
+   ? JSON.stringify(fields[key])
+   : '—';
+  line.append(label,document.createTextNode(': '+value));
+  popup.append(line);
+ }
+}
 const dtekMatchStatuses=new Set(['exact','multiple','candidate_house_format','candidate_street_type','candidate_street_and_house_format']);
 const dtekStatusLabels={
  exact:'Точний збіг', multiple:'Кілька можливих контурів',
@@ -604,9 +618,10 @@ function dtekPresenceDraw(){
     const p=document.createElement('p');
     p.textContent=[record.city,record.street,record.house].join(', ')+' · '+(dtekStatusLabels[record.status]||record.status);
     div.append(p);
+    appendDtekFields(div,record);
    }
    const info=document.createElement('small');
-   info.textContent='ДТЕК: адресу знайдено в довіднику. Даних про поточне відключення в цьому звіті немає.';
+   info.textContent='ДТЕК: дані збережені на '+(dtekSourceFetchedAt||'невідому дату')+'. Поля відображені як повернув сайт; порожні значення не означають наявності світла.';
    div.append(info);
    layer.bindPopup(div);
   }
@@ -691,6 +706,7 @@ async function dtekReviewUseEnvelope(envelope){
  const report=await decryptVisicomFile(envelope,visicomPasswordInput.value);
  if(report.schemaVersion!==2||!Array.isArray(report.records))throw Error('Непідтримуваний формат звіту: очікується schemaVersion 2');
  const records=report.records.filter(r=>dtekReviewStatuses.has(r.status)&&Array.isArray(r.links)&&r.house&&r.city&&r.street);
+ dtekSourceFetchedAt=report.sourceFetchedAt||null;
  dtekPresenceRecords=report.records.filter(r=>dtekMatchStatuses.has(r.status)&&Array.isArray(r.links)&&r.links.length&&r.house&&r.city&&r.street);
  dtekReviewRecords=records;
  dtekReviewSelected=-1;
