@@ -52,6 +52,8 @@ function activateBasemap(){
    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>'
   });
   localTiles.on('tileerror',()=>{visicomStatus.textContent='Не знайдено локальний тайл. Перевір R2 URL, версію та опубліковані масштаби.';});
+  // Tile load may finish after zoomend; reveal labels only for the active tile layer.
+  localTiles.on('load',()=>{if(localTiles&&map.hasLayer(localTiles))finishStreetLabelZoom();});
   localTiles.addTo(map).bringToBack();
   map.getContainer().classList.add('local-basemap');
   visicomStatus.textContent='Локальна OSM з Cloudflare R2. Без запитів до OSM/Visicom Tiles.';
@@ -293,6 +295,11 @@ streetLabelMeasure.font='11px system-ui, sans-serif';
 // The set of label anchors is calculated in world pixels for the zoom level,
 // NEVER from clipped/visible road portions. Panning only changes SVG coordinates.
 let stableStreetLabelZoom=null,stableStreetLabels=[],streetLabelRenderVersion=0;
+let streetLabelZooming=false;
+function finishStreetLabelZoom(){
+ if(streetLabelZooming || (baseMapSelect.value==='local' && localTiles && map.hasLayer(localTiles) && localTiles.isLoading()))return;
+ renderStreetLabels();
+}
 function roadLabelPosition(points){
  let length=0;
  for(let i=1;i<points.length;i++)length+=points[i-1].distanceTo(points[i]);
@@ -386,7 +393,12 @@ function buildStableStreetLabels(){
  }
 }
 function renderStreetLabels(){
+ if(streetLabelZooming || (baseMapSelect.value==='local' && localTiles && map.hasLayer(localTiles) && localTiles.isLoading())){
+  streetLabelSVG.style.visibility='hidden';
+  return;
+ }
  streetLabelSVG.replaceChildren();
+ streetLabelSVG.style.visibility='visible';
  if(baseMapSelect.value!=='local'||!document.getElementById('streetLabels').checked||map.getZoom()<15||!features.length)return;
  buildStableStreetLabels();
  const sz=map.getSize(),w=sz.x,h=sz.y;
@@ -425,7 +437,16 @@ function renderStreetLabels(){
 }
 // The map pane already moves the SVG during dragging; only refresh its viewport
 // after movement. Zoom changes rebuild the fixed anchors at the new pixel scale.
-map.on('moveend zoomend resize',renderStreetLabels);
+// Hide before Leaflet starts animating the map, to avoid stale SVG labels.
+map.on('zoomstart',()=>{
+ streetLabelZooming=true;
+ streetLabelSVG.style.visibility='hidden';
+});
+map.on('zoomend',()=>{
+ streetLabelZooming=false;
+ finishStreetLabelZoom();
+});
+map.on('moveend resize',finishStreetLabelZoom);
 document.getElementById('streetLabels').addEventListener('change',renderStreetLabels);
 function render(){group.clearLayers();let width=Number(inputs[0].value),offset=Number(inputs[1].value);document.getElementById('widthOut').textContent=width;document.getElementById('offsetOut').textContent=offset;
 for(const feature of features){const line=feature.geometry.coordinates.map(p=>L.latLng(p[1],p[0]));if(line.length<2)continue;let name=feature.properties.name||'Без назви',id=feature.properties.id;
