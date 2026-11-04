@@ -172,3 +172,22 @@ plaintext Visicom-linked reports are never uploaded or persisted in browser
 storage, and unencrypted manual exports are created only by a user click.
 Handle downloaded decision files privately because they contain original
 DTEK address strings and Visicom building IDs.
+
+## Public test site: automatic encrypted report loading
+
+The project's main GitHub Pages build is intentionally used as the test map.
+The deployment workflow fetches the encrypted matching report from successful
+run `41910246449` and installs it into the site's
+`data/dtek-all-unified-matches.enc.json` before deploying.
+
+The map automatically fetches this relative URL at startup, and decrypts the
+report with the **existing Visicom password** (from its existing cookie, or
+entered once by the operator). The original optional file picker remains as
+a fallback. No manual ZIP extraction or separate HTTP server is needed.
+
+The report is encrypted and the original data do not become public plaintext.
+This GitHub Actions source artifact has seven-day retention; for a long-lived
+production integration replace the fixed run artifact with a persistent encrypted
+R2 object or a refreshed report, so later deployments do not depend on an
+expired workflow artifact. The current implementation intentionally serves the
+single-user test use case without a separate preview deployment.
