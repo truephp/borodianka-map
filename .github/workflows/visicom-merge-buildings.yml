@@ -22,7 +22,7 @@ on:
       overlap_threshold:
         description: Hide OSM when smaller-contour overlap reaches this value
         required: true
-        default: '0.80'
+        default: '0.50'
         type: string
 
 concurrency:
@@ -78,7 +78,7 @@ jobs:
         env:
           VISICOM_EXPORT_PASSWORD: ${{ secrets.VISICOM_EXPORT_PASSWORD }}
           IOU: ${{ inputs.confident_iou || '0.35' }}
-          OVERLAP: ${{ inputs.overlap_threshold || '0.80' }}
+          OVERLAP: ${{ inputs.overlap_threshold || '0.50' }}
         run: |
           python -m py_compile scripts/merge_buildings.py
           python scripts/merge_buildings.py \
