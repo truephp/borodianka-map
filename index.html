@@ -15,7 +15,7 @@
 <div class="small">Звіт ДТЕК завантажується із сайту автоматично. Для його розшифрування використовується пароль Visicom. Рішення можна експортувати окремим JSON.</div>
 <label>Ручний імпорт звіту (необов'язково) <input id="dtekReviewFile" type="file" accept=".json,application/json"></label>
 <label><input type="checkbox" id="dtekReviewEnable"> Підсвітити неоднозначні адреси</label>
-<div id="dtekReviewStatus" class="small" role="status">Звіт ще не завантажено.</div>
+<label><input type="checkbox" id="dtekPresenceEnable" checked> Підсвітити будівлі, які є у ДТЕК</label><div id="dtekPresenceStatus" class="small">Адреси ДТЕК завантажуються…</div><div class="small">Зелений — однозначна відповідність; помаранчевий — потребує перевірки. Це наявність адреси в довіднику, <strong>не стан електропостачання</strong>.</div><div id="dtekReviewStatus" class="small" role="status">Звіт ще не завантажено.</div>
 <label>Адреса ДТЕК
 <select id="dtekReviewAddress" style="width:100%;padding:8px;background:#263b56;color:#fff;border:1px solid #48617f;border-radius:8px"><option value="">Спочатку завантаж звіт</option></select>
 </label>
@@ -34,7 +34,7 @@
 <div id="dtekReviewDecisionStatus" class="small">Рішення зберігаються лише в пам'яті вкладки до експорту.</div>
 </div><label>Картографічна підкладка <select id="basemap" style="width:100%;padding:8px;background:#263b56;color:#fff;border:1px solid #48617f;border-radius:8px"><option value="osm">OpenStreetMap</option><option value="visicom">Visicom</option><option value="local">Локальна OSM (Cloudflare R2)</option></select></label><label>R2: публічна адреса набору тайлів <input id="localTilesUrl" type="url" placeholder="https://tiles.example.com/borodianka/v1" style="width:100%;padding:8px;background:#263b56;color:#fff;border:1px solid #48617f;border-radius:8px"><span class="small">Вкажи URL каталогу версії, без /{z}/{x}/{y}.webp. Збережеться лише у твоєму браузері.</span></label><label><input type="checkbox" id="compareFootprints"> Порівнювати контури OSM з підкладкою Visicom</label><p class="small" id="visicomStatus">Visicom Tiles: доступ залежить від авторизації/домену. Підкладка не надає інтерактивні полігони будівель.</p><label><input type="checkbox" id="addressMode"> Діагностика адрес OSM (зелений / жовтий / рожевий)</label><div id="addressStats" class="small"></div><label><input type="checkbox" id="showAddressPoints"> Показати окремі адресні точки OSM</label><div id="pointStats" class="small">Адресні точки: очікується імпорт.</div><label><input type="checkbox" id="showBuildings" checked> Показувати будівлі при наближенні (zoom 16+)</label><label><input type="checkbox" id="showMask" checked> Ізолювати Бородянку (+120 м за контуром)</label>
 <div class="legend"><span><i class="swatch" style="background:#ffcc20"></i>Демо: є світло</span><span><i class="swatch" style="background:#3366bf"></i>Демо: планове</span><span><i class="swatch" style="background:#a13d43"></i>Демо: аварійне</span></div>
-<label>Товщина: <output id="widthOut">3</output> px <input id="width" type="range" min="1" max="7" step=".5" value="3"></label>
+<label><input type="checkbox" id="showStreetColors"> Демонстраційне фарбування вулиць</label><label>Товщина: <output id="widthOut">3</output> px <input id="width" type="range" min="1" max="7" step=".5" value="3"></label>
 <label>Відступ: <output id="offsetOut">5</output> px <input id="offset" type="range" min="2" max="12" step="1" value="5"></label>
 <label><input type="checkbox" id="centerline"> Показати вісь дороги</label><label><input type="checkbox" id="streetLabels" checked> Підписи вулиць (на локальній OSM)</label>
 <p class="small">Тест двох незалежних ліній для кожного сегмента OSM. Кольори вигадані для перевірки читабельності, не є даними ДТЕК. Геометрія завантажена з OSM у межах селища. Лінії — лише демонстрація, не стан електропостачання.</p>
@@ -497,6 +497,7 @@ osmTiles.on('load',finishStreetColorZoom);
 visicomTiles.on('load',finishStreetColorZoom);
 document.getElementById('streetLabels').addEventListener('change',renderStreetLabels);
 function render(){group.clearLayers();let width=Number(inputs[0].value),offset=Number(inputs[1].value);document.getElementById('widthOut').textContent=width;document.getElementById('offsetOut').textContent=offset;
+if(!document.getElementById('showStreetColors').checked){streetColorRedrawPending=false;finishStreetColorZoom();return;}
 for(const feature of features){const line=feature.geometry.coordinates.map(p=>L.latLng(p[1],p[0]));if(line.length<2)continue;let name=feature.properties.name||'Без назви',id=feature.properties.id;
 if(inputs[2].checked)L.polyline(line,{color:'#708296',weight:1,interactive:false}).addTo(group);
 for(const [side,sign] of [['L',-1],['R',1]])L.polyline(offsetCoords(line,sign*offset),{color:color(id,side),weight:width,opacity:.93}).bindPopup('OSM way '+id+' · '+name+' · сторона '+side+'<br>Демонстраційний колір').addTo(group)
@@ -530,7 +531,8 @@ div.append(bold,document.createElement('br'),document.createTextNode('OSM way '+
 }}).addTo(buildingsGroup)
 }}
 let renderHandle;function scheduleRender(){cancelAnimationFrame(renderHandle);renderHandle=requestAnimationFrame(()=>{render();renderArea()})}
-inputs.forEach(el=>el.addEventListener('input',scheduleRender));['showBuildings','showMask'].forEach(id=>document.getElementById(id).addEventListener('change',scheduleRender));map.on('zoomend',scheduleRender);pointToggle.addEventListener('change',()=>{quickPoints.classList.toggle('active',pointToggle.checked);if(addressPoints)quickPoints.textContent='Знайдені адреси: '+addressPoints.features.length+(pointToggle.checked?' ✓':'');if(pointToggle.checked&&map.getZoom()<15)map.setZoom(15);scheduleRender()});
+inputs.forEach(el=>el.addEventListener('input',scheduleRender));
+document.getElementById('showStreetColors').addEventListener('change',scheduleRender);['showBuildings','showMask'].forEach(id=>document.getElementById(id).addEventListener('change',scheduleRender));map.on('zoomend',scheduleRender);pointToggle.addEventListener('change',()=>{quickPoints.classList.toggle('active',pointToggle.checked);if(addressPoints)quickPoints.textContent='Знайдені адреси: '+addressPoints.features.length+(pointToggle.checked?' ✓':'');if(pointToggle.checked&&map.getZoom()<15)map.setZoom(15);scheduleRender()});
 fetch('./data/address-points.geojson',{cache:'no-cache'}).then(r=>r.ok?r.json():null).then(data=>{addressPoints=data;if(data){quickPoints.disabled=false;quickPoints.textContent='Знайдені адреси: '+data.features.length;calculateMatches();renderArea()}else pointStats.textContent='Адресні точки ще не імпортовано. Запусти Import OSM data.'}).catch(e=>{pointStats.textContent='Помилка завантаження адресних точок: '+e.message});
 Promise.all([fetch('./data/boundary.geojson').then(r=>r.ok?r.json():null).catch(()=>null),fetch('./data/buildings.geojson').then(r=>r.ok?r.json():null).catch(()=>null)]).then(([b,build])=>{boundaryData=b;buildingData=build;recalculateGeometryMatches();renderVisicomPolygons();calculateMatches();refreshVisicomLegend();if(build){const total=build.features.length,complete=build.features.filter(f=>f.properties.street&&f.properties.housenumber).length,partial=build.features.filter(f=>(f.properties.street||f.properties.housenumber)&&!(f.properties.street&&f.properties.housenumber)).length;addressStats.textContent='Адресні теги будівель: '+complete+' повних, '+partial+' часткових, '+(total-complete-partial)+' без адреси. Зелений — повна адреса, жовтий — часткова, рожевий — адреси немає. У режимі діагностики будівлі видно на будь-якому масштабі.';}renderArea();if(b){const bounds=L.geoJSON(b).getBounds();if(bounds.isValid()){map.setMaxBounds(bounds.pad(0.18));map.fitBounds(bounds,{maxZoom:14,padding:[16,16]})}}if(features.length)render();});fetch('./data/roads.geojson',{cache:'no-cache'}).then(r=>{if(!r.ok)throw Error('HTTP '+r.status+'; спочатку запусти workflow Import OSM data');return r.json()}).then(data=>{features=(data.features||[]).filter(f=>f.geometry?.type==='LineString');status.textContent='Завантажено '+features.length+' сегментів вулиць'+(buildingData?' · '+buildingData.features.length+' будівель':'')+'. Кольори демонстраційні.';if(!features.length)throw Error('Файл доріг порожній');stableStreetLabelZoom=null;render();renderStreetLabels();const bounds=L.geoJSON(data).getBounds();if(bounds.isValid() && !boundaryData)map.fitBounds(bounds.pad(.04),{maxZoom:14})}).catch(e=>{status.textContent='Дороги не завантажено: '+e.message;status.style.color='#ff9c9c';body.hidden=false});
 
@@ -545,6 +547,74 @@ const dtekReviewTarget=document.getElementById('dtekReviewTarget');
 const dtekReviewDetail=document.getElementById('dtekReviewDetail');
 const dtekReviewDecisionStatus=document.getElementById('dtekReviewDecisionStatus');
 const dtekReviewLayer=L.layerGroup().addTo(map);
+const dtekPresenceLayer=L.layerGroup().addTo(map);
+const dtekPresenceEnable=document.getElementById('dtekPresenceEnable');
+const dtekPresenceStatus=document.getElementById('dtekPresenceStatus');
+let dtekPresenceRecords=[];
+const dtekMatchStatuses=new Set(['exact','multiple','candidate_house_format','candidate_street_type','candidate_street_and_house_format']);
+const dtekStatusLabels={
+ exact:'Точний збіг', multiple:'Кілька можливих контурів',
+ candidate_house_format:'Варіант написання номера',
+ candidate_street_type:'Неоднозначний тип вулиці',
+ candidate_street_and_house_format:'Тип вулиці та номер потребують перевірки'
+};
+function dtekPresenceDraw(){
+ dtekPresenceLayer.clearLayers();
+ if(!dtekPresenceEnable.checked)return;
+ if(!dtekPresenceRecords.length){
+  dtekPresenceStatus.textContent='Звіт ДТЕК ще не розшифровано.';
+  return;
+ }
+ if(!premergedBuildings){
+  dtekPresenceStatus.textContent='Адреси ДТЕК завантажено. Потрібно відкрити будівлі Visicom.';
+  return;
+ }
+ const lookup=new Map();
+ for(const record of dtekPresenceRecords){
+  for(const link of record.links||[]){
+   const key=link.source+':'+String(link.id);
+   if(!lookup.has(key))lookup.set(key,{link,records:[]});
+   lookup.get(key).records.push(record);
+  }
+ }
+ let mapped=0,exactCount=0,candidateCount=0;
+ const features=[];
+ const descriptions=new Map();
+ for(const [key,item] of lookup){
+  const feature=dtekReviewFeature(item.link);
+  if(!feature)continue;
+  mapped++;
+  const confirmed=item.records.every(r=>r.status==='exact')&&item.records.length===1;
+  if(confirmed)exactCount++;else candidateCount++;
+  features.push(feature);
+  descriptions.set(feature,{key,confirmed,records:item.records,link:item.link});
+ }
+ L.geoJSON({type:'FeatureCollection',features},{
+  style:f=>{
+   const d=descriptions.get(f),color=d?.confirmed?'#22c55e':'#f59e0b';
+   return {color,weight:2,fillColor:color,fillOpacity:.5};
+  },
+  onEachFeature:(f,layer)=>{
+   const d=descriptions.get(f);
+   if(!d)return;
+   const div=document.createElement('div'),strong=document.createElement('strong');
+   strong.textContent=[d.link.street,d.link.house].filter(Boolean).join(', ')||'Будівля ДТЕК';
+   div.append(strong,document.createElement('br'),document.createTextNode(d.link.source+' #'+d.link.id));
+   for(const record of d.records){
+    const p=document.createElement('p');
+    p.textContent=[record.city,record.street,record.house].join(', ')+' · '+(dtekStatusLabels[record.status]||record.status);
+    div.append(p);
+   }
+   const info=document.createElement('small');
+   info.textContent='ДТЕК: адресу знайдено в довіднику. Даних про поточне відключення в цьому звіті немає.';
+   div.append(info);
+   layer.bindPopup(div);
+  }
+ }).addTo(dtekPresenceLayer);
+ dtekPresenceStatus.textContent='Підсвічено '+mapped+' контурів: '+exactCount+' однозначних, '+candidateCount+' кандидатів. Усього адресних записів зі збігами: '+dtekPresenceRecords.length+'.';
+}
+dtekPresenceEnable.addEventListener('change',dtekPresenceDraw);
+
 let dtekReviewRecords=[],dtekReviewDecisions=new Map(),dtekReviewSelected=-1;
 const dtekReviewStatuses=new Set(['multiple','candidate_house_format','candidate_street_type','candidate_street_and_house_format']);
 const dtekReviewPalette={multiple:'#ef4444',candidate_house_format:'#f59e0b',candidate_street_type:'#eab308',candidate_street_and_house_format:'#f97316'};
@@ -621,13 +691,15 @@ async function dtekReviewUseEnvelope(envelope){
  const report=await decryptVisicomFile(envelope,visicomPasswordInput.value);
  if(report.schemaVersion!==2||!Array.isArray(report.records))throw Error('Непідтримуваний формат звіту: очікується schemaVersion 2');
  const records=report.records.filter(r=>dtekReviewStatuses.has(r.status)&&Array.isArray(r.links)&&r.house&&r.city&&r.street);
+ dtekPresenceRecords=report.records.filter(r=>dtekMatchStatuses.has(r.status)&&Array.isArray(r.links)&&r.links.length&&r.house&&r.city&&r.street);
  dtekReviewRecords=records;
  dtekReviewSelected=-1;
  dtekReviewDecisions.clear();
  dtekReviewAddress.replaceChildren(new Option('Оберіть адресу',''));
  const entries=[...records.entries()].sort((a,b)=>([a[1].street,a[1].house,a[1].city].join(' ')).localeCompare([b[1].street,b[1].house,b[1].city].join(' '),'uk'));
  for(const [i,r] of entries)dtekReviewAddress.add(new Option([r.city,r.street,r.house].join(' · ')+' ['+r.status+']',String(i)));
- dtekReviewEnable.checked=true;
+ dtekReviewEnable.checked=false;
+ dtekPresenceDraw();
  dtekReviewStatus.textContent='Завантажено '+records.length+' неоднозначних адрес. Обери адресу або натисни кольоровий контур.';
  dtekReviewCount();dtekReviewDisplay();
 }
@@ -722,7 +794,7 @@ document.getElementById('dtekReviewImport').addEventListener('change',async e=>{
 });
 // Restore highlighting when private unified buildings are loaded later.
 const oldApplyVisicomFeatures=applyVisicomFeatures;
-applyVisicomFeatures=function(...args){const result=oldApplyVisicomFeatures(...args);dtekReviewDraw();return result;};
+applyVisicomFeatures=function(...args){const result=oldApplyVisicomFeatures(...args);dtekReviewDraw();dtekPresenceDraw();return result;};
 
 // Group existing controls into compact native collapsible sections.
 (function groupSettings(){
@@ -731,7 +803,7 @@ applyVisicomFeatures=function(...args){const result=oldApplyVisicomFeatures(...a
   {title:'Будівлі',ids:['showBuildings','showMask','showVisicomPolygons']},
   {title:'Адреси',ids:['addressMode','addressStats','showAddressPoints','pointStats']},
   {title:'Діагностика',ids:['inspectBuildings','visicomColorMode','visicomLegend','visicomImport','unifiedBuildingsUrl','visicomPassword','visicomImportStatus','restoreVisicomCache','unifiedBuildings','unifiedStats','showGeometryMatches','geometryStats','iouHigh','iouMedium','iouLow','overlapThreshold','clipVisicomBoundary','showGeometryConflicts','conflictStats','clearVisicomPolygons','dtekReviewSection']},
-  {title:'Лінії вулиць',ids:['width','offset','centerline','streetLabels']}
+  {title:'Лінії вулиць',ids:['showStreetColors','width','offset','centerline','streetLabels']}
  ];
  const parent=document.getElementById('body');
  for(const sec of sections){
