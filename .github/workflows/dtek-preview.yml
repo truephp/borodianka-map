@@ -1,0 +1,54 @@
+name: Build DTEK map preview (artifact only)
+
+on:
+  push:
+    branches: [feature/dtek-address-matching]
+    paths:
+      - 'index.html'
+      - 'data/**'
+      - '.github/workflows/dtek-preview.yml'
+      - 'scripts/test_dtek_preview.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check the map's inline script
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          data=Path('index.html').read_text(encoding='utf-8')
+          scripts=re.findall(r'<script>([\s\S]*?)</script>',data)
+          assert len(scripts)==1
+          Path('/tmp/dtek-preview-script.js').write_text(scripts[0],encoding='utf-8')
+          PY
+          node --check /tmp/dtek-preview-script.js
+      - name: Install browser and run live-page smoke test
+        run: |
+          npm install --no-save playwright@1.58.2
+          npx playwright install --with-deps chromium
+          python -m http.server 8765 --bind 127.0.0.1 > /tmp/dtek-http.log 2>&1 &
+          echo $! > /tmp/dtek-http.pid
+          node scripts/test_dtek_preview.mjs
+      - name: Build standalone preview artifact, NOT Github Pages
+        run: |
+          mkdir -p "$RUNNER_TEMP/preview"
+          cp index.html "$RUNNER_TEMP/preview/"
+          cp -R data "$RUNNER_TEMP/preview/"
+          printf '%s\n' 'DTEK preview. Serve this directory over HTTP; do not open index.html via file://.' 'e.g. python -m http.server 8765' 'The preview is from feature/dtek-address-matching and does not deploy to the shared production GitHub Pages site.' > "$RUNNER_TEMP/preview/README.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: borodianka-dtek-review-preview
+          path: ${{ runner.temp }}/preview/
+          if-no-files-found: error
+          retention-days: 7
