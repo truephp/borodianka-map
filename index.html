@@ -4,7 +4,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
 *{box-sizing:border-box}html,body{height:100%;width:100%;margin:0;overflow:hidden;overscroll-behavior:none}body{position:fixed;inset:0;font:14px system-ui,sans-serif;background:#0b111d;color:#e5ecf9}#map{position:absolute;inset:0;width:100%;height:100%;overflow:hidden}
-.leaflet-tile{filter:grayscale(1) brightness(.47) contrast(1.15)}.local-basemap .leaflet-tile{filter:none}.leaflet-container{background:#0b111d}
+.street-name-label{color:#dce6f3;background:#111a2bd9;border:1px solid #41566b99;border-radius:4px;padding:2px 4px;white-space:nowrap;font:11px/1.25 system-ui,sans-serif;text-align:center;text-shadow:0 1px 2px #000;box-shadow:0 1px 3px #0009;pointer-events:none}.leaflet-tile{filter:grayscale(1) brightness(.47) contrast(1.15)}.local-basemap .leaflet-tile{filter:none}.leaflet-container{background:#0b111d}
 .panel{position:absolute;top:12px;left:12px;z-index:1000;background:#111a2bee;border:1px solid #394860;border-radius:14px;padding:13px;max-width:min(450px,calc(100vw - 24px));box-shadow:0 8px 25px #0008;max-height:calc(100vh - 24px);max-height:calc(100dvh - 24px);overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y}
 .row{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}.mode-button.active{background:#9d174d;border-color:#f9a8d4;color:#fff}.title{font-size:18px;font-weight:700}.panel button{background:#263b56;color:white;border:1px solid #48617f;border-radius:8px;padding:8px;cursor:pointer}.body{margin-top:10px}.body[hidden]{display:none}label{display:block;margin:12px 0}input[type=range]{width:100%}.status{font-size:13px;color:#afc1d9;max-width:380px;line-height:1.4}.legend{display:flex;gap:10px;flex-wrap:wrap;margin:9px 0}.swatch{display:inline-block;width:20px;height:5px;border-radius:5px;vertical-align:middle;margin-right:4px}.small{font-size:12px;color:#9bb0ca}.leaflet-control-attribution{font-size:10px}.inspect-card{position:absolute;z-index:1002;bottom:28px;left:12px;max-width:min(360px,calc(100vw - 90px));background:#101c31f2;border:1px solid #22d3ee;border-radius:12px;padding:12px;box-shadow:0 4px 18px #0009;font-size:13px}.inspect-card[hidden]{display:none}.inspect-card button{background:#263b56;color:white;border:1px solid #48617f;border-radius:6px;padding:5px 9px}.inspect-card p{margin:7px 0}.inspect-card strong{color:#67e8f9}.setting-section{border:1px solid #394860;border-radius:8px;padding:7px 10px;margin:8px 0}.setting-section>summary{cursor:pointer;font-weight:650;padding:3px 0}.setting-section>label{margin:8px 0}.setting-section .small{margin:7px 0}
 </style></head><body><div id="map"></div>
@@ -14,7 +14,7 @@
 <div class="legend"><span><i class="swatch" style="background:#ffcc20"></i>Демо: є світло</span><span><i class="swatch" style="background:#3366bf"></i>Демо: планове</span><span><i class="swatch" style="background:#a13d43"></i>Демо: аварійне</span></div>
 <label>Товщина: <output id="widthOut">3</output> px <input id="width" type="range" min="1" max="7" step=".5" value="3"></label>
 <label>Відступ: <output id="offsetOut">5</output> px <input id="offset" type="range" min="2" max="12" step="1" value="5"></label>
-<label><input type="checkbox" id="centerline"> Показати вісь дороги</label>
+<label><input type="checkbox" id="centerline"> Показати вісь дороги</label><label><input type="checkbox" id="streetLabels" checked> Підписи вулиць (на локальній OSM)</label>
 <p class="small">Тест двох незалежних ліній для кожного сегмента OSM. Кольори вигадані для перевірки читабельності, не є даними ДТЕК. Геометрія завантажена з OSM у межах селища. Лінії — лише демонстрація, не стан електропостачання.</p>
 </div></section><aside id="inspectCard" class="inspect-card" hidden><div class="row"><strong>Будівля OSM</strong><button type="button" id="closeInspect">Закрити</button></div><p id="inspectInfo"></p><p class="small">Visicom: лише картографічна підкладка. Геометрія й адресні кандидати з Data API ще не підключені. Збіг не підтверджений.</p><div id="visicomMatches"></div><button type="button" id="copyInspect">Копіювати координати</button></aside>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
@@ -63,6 +63,7 @@ function activateBasemap(){
   visicomStatus.textContent='OSM увімкнено.';
  }
  visicomErrors=0;
+ renderStreetLabels();
  scheduleRender();
 }
 localTilesUrl.addEventListener('change',()=>{
@@ -210,6 +211,53 @@ if(envelope){json=await decryptVisicomFile(envelope,document.getElementById('vis
 if(json.type==='FeatureCollection'&&Array.isArray(json.features)){const count=applyVisicomFeatures(json);if(envelope){try{await cacheVisicomFile(envelope);}catch(err){info.textContent='Завантажено '+count+' полігонів, але кеш недоступний: '+err.message;return;}}info.textContent='Додано '+count+' полігонів. Унікальних Visicom: '+visicomPolygonMap.size+'.'+(envelope?' Зашифрований файл збережено в браузері.':'');return;}const entries=Array.isArray(json)?json:json.matches;if(!Array.isArray(entries))throw Error('Потрібен масив [{osmId,candidates:[{street,name,dist_meters}]}]');const next=new Map(),failed=new Set();for(const entry of entries){const id=String(entry.osmId??entry.osm_id??'');if(!/^\d+$/.test(id)||!Array.isArray(entry.candidates))throw Error('Некоректний osmId або candidates');if(entry.status==='failed')failed.add(id);next.set(id,entry.candidates.slice(0,20).filter(c=>c&&typeof c==='object').map(c=>({street:String(c.street??'').slice(0,120),name:String(c.name??c.number??'').slice(0,40),dist_meters:Number(c.dist_meters)})));}comparisonData=next;comparisonFailed=failed;refreshVisicomLegend();scheduleRender();info.textContent='Завантажено локально '+next.size+' наборів кандидатів. Дані не публікуються.';if(selectedBuilding!=null){const selected=buildingData?.features.find(f=>String(f.properties.id)===String(selectedBuilding));if(selected)drawCandidates(selected.properties)}}catch(error){info.textContent='Помилка JSON: '+error.message;}e.target.value='';});document.getElementById('closeInspect').onclick=()=>{selectedBuilding=null;inspectCard.hidden=true;scheduleRender()};document.getElementById('copyInspect').onclick=()=>{if(selectedCoords&&navigator.clipboard?.writeText)navigator.clipboard.writeText(selectedCoords.join(', '))};inspectToggle.addEventListener('change',()=>{if(inspectToggle.checked){document.getElementById('showBuildings').checked=true;if(map.getZoom()<16)map.setZoom(16)}else{selectedBuilding=null;inspectCard.hidden=true}scheduleRender()});function inspectFeature(f,l){selectedBuilding=f.properties.id;const p=f.properties;const center=l.getBounds().getCenter();selectedCoords=[center.lat.toFixed(6),center.lng.toFixed(6)];inspectInfo.textContent='OSM way '+p.id+' · '+(p.building||'building')+' · адреса: '+([p.street,p.housenumber].filter(Boolean).join(', ')||'немає')+' · центр: '+selectedCoords.join(', ')+(pointMatching?.get(p.id)?.length?' · адресних точок: '+pointMatching.get(p.id).length:'');inspectCard.hidden=false;drawCandidates(p);l.bringToFront();}
 function offsetCoords(latlngs,offset){let points=latlngs.map(p=>map.latLngToLayerPoint(p));return points.map((p,i)=>{let prev=points[Math.max(0,i-1)],next=points[Math.min(points.length-1,i+1)];let dx=next.x-prev.x,dy=next.y-prev.y,len=Math.hypot(dx,dy)||1;return map.layerPointToLatLng(L.point(p.x-dy/len*offset,p.y+dx/len*offset))})}
 function color(id,side){const c=['#ffcc20','#3366bf','#a13d43'];let n=0;for(const ch of String(id))n=(n*33+ch.charCodeAt(0))>>>0;return c[(n+(side==='R'?1:0))%3]}
+const streetLabelsGroup=L.layerGroup().addTo(map);
+function renderStreetLabels(){
+ streetLabelsGroup.clearLayers();
+ if(baseMapSelect.value!=='local'||!document.getElementById('streetLabels').checked||map.getZoom()<15||!features.length)return;
+ const byName=new Map();
+ for(const f of features){
+  const name=String(f.properties?.name||'').trim();
+  if(!name||name==='Без назви'||f.geometry?.type!=='LineString')continue;
+  const coords=f.geometry.coordinates;
+  if(coords.length<2)continue;
+  let length=0;
+  for(let i=1;i<coords.length;i++)length+=L.latLng(coords[i-1][1],coords[i-1][0]).distanceTo(L.latLng(coords[i][1],coords[i][0]));
+  if(length<20)continue;
+  const old=byName.get(name);
+  if(!old||length>old.length)byName.set(name,{coords,length,name});
+ }
+ const occupied=[],sz=map.getSize(),bounds=map.getBounds();
+ let count=0;
+ for(const entry of [...byName.values()].sort((a,b)=>b.length-a.length)){
+  const coords=entry.coords,full=entry.length;
+  let distance=0,position=null;
+  for(let i=1;i<coords.length;i++){
+   const a=L.latLng(coords[i-1][1],coords[i-1][0]),b=L.latLng(coords[i][1],coords[i][0]);
+   const seg=a.distanceTo(b);
+   if(distance+seg>=full/2){
+    const t=seg?(full/2-distance)/seg:0;
+    position=L.latLng(a.lat+(b.lat-a.lat)*t,a.lng+(b.lng-a.lng)*t);
+    break;
+   }
+   distance+=seg;
+  }
+  if(!position||!bounds.contains(position))continue;
+  const p=map.latLngToContainerPoint(position);
+  const label=entry.name.length>34?entry.name.slice(0,32)+'…':entry.name;
+  const w=Math.min(250,Math.max(65,label.length*6.3+12)),h=20;
+  const box={x:p.x-w/2,y:p.y-h/2,x2:p.x+w/2,y2:p.y+h/2};
+  if(box.x<8||box.y<8||box.x2>sz.x-8||box.y2>sz.y-8)continue;
+  if(occupied.some(other=>!(box.x2+12<other.x||box.x-12>other.x2||box.y2+9<other.y||box.y-9>other.y2)))continue;
+  occupied.push(box);
+  const escaped=label.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const icon=L.divIcon({className:'',html:'<div class="street-name-label">'+escaped+'</div>',iconSize:[w,h],iconAnchor:[w/2,h/2]});
+  L.marker(position,{icon,interactive:false,keyboard:false}).addTo(streetLabelsGroup);
+  if(++count>=65)break;
+ }
+}
+map.on('moveend zoomend',renderStreetLabels);
+document.getElementById('streetLabels').addEventListener('change',renderStreetLabels);
 function render(){group.clearLayers();let width=Number(inputs[0].value),offset=Number(inputs[1].value);document.getElementById('widthOut').textContent=width;document.getElementById('offsetOut').textContent=offset;
 for(const feature of features){const line=feature.geometry.coordinates.map(p=>L.latLng(p[1],p[0]));if(line.length<2)continue;let name=feature.properties.name||'Без назви',id=feature.properties.id;
 if(inputs[2].checked)L.polyline(line,{color:'#708296',weight:1,interactive:false}).addTo(group);
@@ -252,7 +300,7 @@ Promise.all([fetch('./data/boundary.geojson').then(r=>r.ok?r.json():null).catch(
   {title:'Будівлі',ids:['showBuildings','showMask','showVisicomPolygons']},
   {title:'Адреси',ids:['addressMode','addressStats','showAddressPoints','pointStats']},
   {title:'Діагностика',ids:['inspectBuildings','visicomColorMode','visicomLegend','visicomImport','visicomPassword','visicomImportStatus','restoreVisicomCache','unifiedBuildings','unifiedStats','showGeometryMatches','geometryStats','iouHigh','iouMedium','iouLow','overlapThreshold','clipVisicomBoundary','showGeometryConflicts','conflictStats','clearVisicomPolygons']},
-  {title:'Лінії вулиць',ids:['width','offset','centerline']}
+  {title:'Лінії вулиць',ids:['width','offset','centerline','streetLabels']}
  ];
  const parent=document.getElementById('body');
  for(const sec of sections){
