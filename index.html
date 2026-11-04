@@ -10,7 +10,7 @@
 </style></head><body><div id="map"></div>
 <section class="panel"><div class="row"><span class="title">Бородянка · вулиці</span><button type="button" class="mode-button" id="quickAddress">Адреси: ВИМК</button><button type="button" id="quickPoints">Знайдені адреси: …</button><button id="toggle">Налаштування</button></div>
 <p class="status" id="status" role="status">Завантажуємо локальні OSM-дані…</p>
-<div class="body" id="body" hidden><label><input type="checkbox" id="inspectBuildings"> Діагностика будівель: вибір на карті</label><label><input type="checkbox" id="visicomColorMode"> Забарвлення за збігами Visicom / OSM</label><div id="visicomLegend" class="small">Потрібно завантажити зашифрований файл Visicom.</div><label>Зашифрований JSON Visicom <input id="visicomImport" type="file" accept=".json,application/json"></label><label>Пароль експорту <input type="password" id="visicomPassword" autocomplete="off" placeholder="VISICOM_EXPORT_PASSWORD"></label><label><input type="checkbox" id="showVisicomPolygons" checked> Показувати полігони Visicom (фіолетові)</label><button type="button" id="clearVisicomPolygons">Очистити полігони Visicom</button><label><input type="checkbox" id="unifiedBuildings"> Єдиний шар будівель (Visicom + OSM без дублікатів)</label><div id="unifiedStats" class="small">Для об'єднання завантаж полігони Visicom.</div><label><input type="checkbox" id="showGeometryMatches"> Порівняти геометрію OSM / Visicom (IoU ≥ 0,65)</label><label>Впевнений IoU: <output id="iouHighValue">0.65</output><input id="iouHigh" type="range" min="0.35" max="0.9" step="0.05" value="0.65"></label><label>Ймовірний IoU: <output id="iouMediumValue">0.30</output><input id="iouMedium" type="range" min="0.15" max="0.6" step="0.05" value="0.30"></label><label>Слабкий IoU: <output id="iouLowValue">0.10</output><input id="iouLow" type="range" min="0.05" max="0.3" step="0.05" value="0.10"></label><label>Перекриття меншого контуру: <output id="overlapValue">0.80</output><input id="overlapThreshold" type="range" min="0.5" max="1" step="0.05" value="0.80"></label><label><input type="checkbox" id="clipVisicomBoundary" checked> Лише полігони в межах Бородянки</label><label><input type="checkbox" id="showGeometryConflicts"> Виділити конфлікти зіставлення</label><div id="conflictStats" class="small">Конфлікти ще не обчислені.</div><div id="geometryStats" class="small">Порівняння ще не виконано.</div><button type="button" id="restoreVisicomCache">Відкрити кеш Visicom</button><div id="visicomImportStatus" class="small">Дані не завантажені. JSON обробляється тільки у браузері, не надсилається на сервер.</div><label>Картографічна підкладка <select id="basemap" style="width:100%;padding:8px;background:#263b56;color:#fff;border:1px solid #48617f;border-radius:8px"><option value="osm">OpenStreetMap</option><option value="visicom">Visicom</option><option value="local">Локальна OSM (Cloudflare R2)</option></select></label><label>R2: публічна адреса набору тайлів <input id="localTilesUrl" type="url" placeholder="https://tiles.example.com/borodianka/v1" style="width:100%;padding:8px;background:#263b56;color:#fff;border:1px solid #48617f;border-radius:8px"><span class="small">Вкажи URL каталогу версії, без /{z}/{x}/{y}.webp. Збережеться лише у твоєму браузері.</span></label><label><input type="checkbox" id="compareFootprints"> Порівнювати контури OSM з підкладкою Visicom</label><p class="small" id="visicomStatus">Visicom Tiles: доступ залежить від авторизації/домену. Підкладка не надає інтерактивні полігони будівель.</p><label><input type="checkbox" id="addressMode"> Діагностика адрес OSM (зелений / жовтий / рожевий)</label><div id="addressStats" class="small"></div><label><input type="checkbox" id="showAddressPoints"> Показати окремі адресні точки OSM</label><div id="pointStats" class="small">Адресні точки: очікується імпорт.</div><label><input type="checkbox" id="showBuildings" checked> Показувати будівлі при наближенні (zoom 16+)</label><label><input type="checkbox" id="showMask" checked> Ізолювати Бородянку (+120 м за контуром)</label>
+<div class="body" id="body" hidden><label><input type="checkbox" id="inspectBuildings"> Діагностика будівель: вибір на карті</label><label><input type="checkbox" id="visicomColorMode"> Забарвлення за збігами Visicom / OSM</label><div id="visicomLegend" class="small">Потрібно завантажити зашифрований файл Visicom.</div><label>Зашифрований JSON Visicom <input id="visicomImport" type="file" accept=".json,application/json"></label><label>URL об'єднаних будівель у R2 <input id="unifiedBuildingsUrl" type="url" placeholder="https://YOUR-R2-DOMAIN/borodianka/data/borodianka-buildings.enc.json" style="width:100%;padding:8px;background:#263b56;color:#fff;border:1px solid #48617f;border-radius:8px"><span class="small">Якщо URL не задано, адреса автоматично визначається з налаштованої R2-підкладки.</span></label><label>Пароль експорту (cookie на 24 години) <input type="password" id="visicomPassword" autocomplete="off" placeholder="VISICOM_EXPORT_PASSWORD"></label><label><input type="checkbox" id="showVisicomPolygons" checked> Показувати полігони Visicom (фіолетові)</label><button type="button" id="clearVisicomPolygons">Очистити полігони Visicom</button><label><input type="checkbox" id="unifiedBuildings"> Єдиний шар будівель (Visicom + OSM без дублікатів)</label><div id="unifiedStats" class="small">Для об'єднання завантаж полігони Visicom.</div><label><input type="checkbox" id="showGeometryMatches"> Порівняти геометрію OSM / Visicom (IoU ≥ 0,65)</label><label>Впевнений IoU: <output id="iouHighValue">0.65</output><input id="iouHigh" type="range" min="0.35" max="0.9" step="0.05" value="0.65"></label><label>Ймовірний IoU: <output id="iouMediumValue">0.30</output><input id="iouMedium" type="range" min="0.15" max="0.6" step="0.05" value="0.30"></label><label>Слабкий IoU: <output id="iouLowValue">0.10</output><input id="iouLow" type="range" min="0.05" max="0.3" step="0.05" value="0.10"></label><label>Перекриття меншого контуру: <output id="overlapValue">0.80</output><input id="overlapThreshold" type="range" min="0.5" max="1" step="0.05" value="0.80"></label><label><input type="checkbox" id="clipVisicomBoundary" checked> Лише полігони в межах Бородянки</label><label><input type="checkbox" id="showGeometryConflicts"> Виділити конфлікти зіставлення</label><div id="conflictStats" class="small">Конфлікти ще не обчислені.</div><div id="geometryStats" class="small">Порівняння ще не виконано.</div><button type="button" id="restoreVisicomCache">Завантажити будівлі з R2 / відкрити кеш</button><div id="visicomImportStatus" class="small">Дані ще не завантажені. Зашифрований файл отримується з R2, розшифровується тільки в браузері.</div><label>Картографічна підкладка <select id="basemap" style="width:100%;padding:8px;background:#263b56;color:#fff;border:1px solid #48617f;border-radius:8px"><option value="osm">OpenStreetMap</option><option value="visicom">Visicom</option><option value="local">Локальна OSM (Cloudflare R2)</option></select></label><label>R2: публічна адреса набору тайлів <input id="localTilesUrl" type="url" placeholder="https://tiles.example.com/borodianka/v1" style="width:100%;padding:8px;background:#263b56;color:#fff;border:1px solid #48617f;border-radius:8px"><span class="small">Вкажи URL каталогу версії, без /{z}/{x}/{y}.webp. Збережеться лише у твоєму браузері.</span></label><label><input type="checkbox" id="compareFootprints"> Порівнювати контури OSM з підкладкою Visicom</label><p class="small" id="visicomStatus">Visicom Tiles: доступ залежить від авторизації/домену. Підкладка не надає інтерактивні полігони будівель.</p><label><input type="checkbox" id="addressMode"> Діагностика адрес OSM (зелений / жовтий / рожевий)</label><div id="addressStats" class="small"></div><label><input type="checkbox" id="showAddressPoints"> Показати окремі адресні точки OSM</label><div id="pointStats" class="small">Адресні точки: очікується імпорт.</div><label><input type="checkbox" id="showBuildings" checked> Показувати будівлі при наближенні (zoom 16+)</label><label><input type="checkbox" id="showMask" checked> Ізолювати Бородянку (+120 м за контуром)</label>
 <div class="legend"><span><i class="swatch" style="background:#ffcc20"></i>Демо: є світло</span><span><i class="swatch" style="background:#3366bf"></i>Демо: планове</span><span><i class="swatch" style="background:#a13d43"></i>Демо: аварійне</span></div>
 <label>Товщина: <output id="widthOut">3</output> px <input id="width" type="range" min="1" max="7" step=".5" value="3"></label>
 <label>Відступ: <output id="offsetOut">5</output> px <input id="offset" type="range" min="2" max="12" step="1" value="5"></label>
@@ -202,18 +202,82 @@ function applyVisicomFeatures(json){
  recalculateGeometryMatches();renderVisicomPolygons();scheduleRender();
  return valid.length;
 }
+// Cookies contain the password in plain text: Secure/SameSite restrict transport, but not JS access.
+const visicomPassCookie='borodianka_visicom_password';
+function getVisicomCookiePassword(){
+ const item=document.cookie.split('; ').find(v=>v.startsWith(visicomPassCookie+'='));
+ if(!item)return '';
+ try{return decodeURIComponent(item.slice(visicomPassCookie.length+1))}catch{return ''}
+}
+function rememberVisicomPassword(password){
+ if(!password)return;
+ document.cookie=visicomPassCookie+'='+encodeURIComponent(password)+'; Max-Age=86400; Path=/; SameSite=Strict'+(location.protocol==='https:'?'; Secure':'');
+}
+function forgetVisicomPassword(){
+ document.cookie=visicomPassCookie+'=; Max-Age=0; Path=/; SameSite=Strict'+(location.protocol==='https:'?'; Secure':'');
+}
+const unifiedBuildingsUrlInput=document.getElementById('unifiedBuildingsUrl');
+try{unifiedBuildingsUrlInput.value=localStorage.getItem('borodianka-unified-buildings-url')||'';}catch{}
+const visicomPasswordInput=document.getElementById('visicomPassword');
+visicomPasswordInput.value=getVisicomCookiePassword();
+function getUnifiedBuildingsR2Url(){
+ let input=unifiedBuildingsUrlInput.value.trim();
+ if(!input){
+  const tileRoot=localTilesUrl.value.trim();
+  if(!tileRoot)return null;
+  try{
+   const url=new URL(tileRoot);
+   const pos=url.pathname.indexOf('/borodianka/');
+   if(pos<0)return null;
+   input=url.origin+'/borodianka/data/borodianka-buildings.enc.json';
+  }catch{return null}
+ }
+ const url=new URL(input);
+ if(url.protocol!=='https:')throw Error('Потрібен HTTPS URL до файлу R2');
+ if(!url.pathname.endsWith('.enc.json'))throw Error('URL повинен вести на зашифрований .enc.json');
+ return url.href;
+}
+unifiedBuildingsUrlInput.addEventListener('change',()=>{
+ try{localStorage.setItem('borodianka-unified-buildings-url',unifiedBuildingsUrlInput.value.trim())}catch{}
+});
+async function loadUnifiedBuildingsR2(){
+ const info=document.getElementById('visicomImportStatus');
+ const url=getUnifiedBuildingsR2Url();
+ if(!url)throw Error('Вкажи URL будівель R2 або адресу R2-тайлів, щоб визначити домен');
+ const password=visicomPasswordInput.value;
+ if(!password)throw Error('Введи пароль експорту; файл R2 буде розшифровано локально');
+ const response=await fetch(url,{cache:'no-cache'});
+ if(!response.ok)throw Error('R2 повернув HTTP '+response.status);
+ const envelope=await response.json();
+ if(envelope.version!==1||envelope.kdf!=='PBKDF2-SHA256')throw Error('R2 повернув не зашифрований GeoJSON');
+ const json=await decryptVisicomFile(envelope,password);
+ if(json.metadata?.mergedBuildings!==true)throw Error('R2 файл не є об’єднаним набором будівель');
+ const count=applyVisicomFeatures(json);
+ rememberVisicomPassword(password);
+ try{await cacheVisicomFile(envelope)}catch(err){console.warn('Encrypted offline cache unavailable',err)}
+ info.textContent='R2: '+count+' Visicom + '+json.metadata.osmSupplemental+' OSM. Пароль збережено в cookie на 24 години.';
+ return count;
+}
 async function restoreVisicomCache(){
- const info=document.getElementById('visicomImportStatus'),password=document.getElementById('visicomPassword').value;
- try{const envelope=await getCachedVisicomFile();if(!envelope)return;
- if(!password){info.textContent='Зашифрований Visicom GeoJSON збережено у браузері. Введи пароль і натисни «Відкрити кеш».';return;}
- const added=applyVisicomFeatures(await decryptVisicomFile(envelope,password));
- info.textContent='Відновлено '+added+' Visicom-полігонів із кешу браузера.';
- }catch(e){info.textContent='Кеш Visicom: '+e.message;}
+ const info=document.getElementById('visicomImportStatus'),password=visicomPasswordInput.value;
+ try{
+  if(getUnifiedBuildingsR2Url()){
+   await loadUnifiedBuildingsR2();
+   return;
+  }
+  const envelope=await getCachedVisicomFile();
+  if(!envelope){info.textContent='Вкажи URL R2-даних або каталог тайлів у налаштуваннях підкладки.';return;}
+  if(!password){info.textContent='Зашифрований файл є в кеші браузера. Введи пароль для відкриття.';return;}
+  const added=applyVisicomFeatures(await decryptVisicomFile(envelope,password));
+  rememberVisicomPassword(password);
+  info.textContent='Відновлено '+added+' Visicom-полігонів із кешу браузера. Пароль збережено на 24 години.';
+ }catch(e){info.textContent='Будівлі: '+e.message;console.warn('Encrypted buildings could not be loaded',e);}
 }
 document.getElementById('restoreVisicomCache').addEventListener('click',restoreVisicomCache);
+visicomPasswordInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();restoreVisicomCache()}});
 restoreVisicomCache();
 document.getElementById('visicomImport').addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file)return;const info=document.getElementById('visicomImportStatus');try{if(file.size>25e6)throw Error('Максимум 25 MB');let json=JSON.parse(await file.text());const envelope=json.version===1&&json.kdf==='PBKDF2-SHA256'?json:null;
-if(envelope){json=await decryptVisicomFile(envelope,document.getElementById('visicomPassword').value);}else if(!Array.isArray(json))throw Error('Потрібен зашифрований JSON із GitHub Actions');
+if(envelope){json=await decryptVisicomFile(envelope,visicomPasswordInput.value);rememberVisicomPassword(visicomPasswordInput.value);}else if(!Array.isArray(json))throw Error('Потрібен зашифрований JSON із GitHub Actions');
 if(json.type==='FeatureCollection'&&Array.isArray(json.features)){const count=applyVisicomFeatures(json);if(envelope){try{await cacheVisicomFile(envelope);}catch(err){info.textContent='Завантажено '+count+' полігонів, але кеш недоступний: '+err.message;return;}}info.textContent='Додано '+count+' полігонів. Унікальних Visicom: '+visicomPolygonMap.size+'.'+(envelope?' Зашифрований файл збережено в браузері.':'');return;}const entries=Array.isArray(json)?json:json.matches;if(!Array.isArray(entries))throw Error('Потрібен масив [{osmId,candidates:[{street,name,dist_meters}]}]');const next=new Map(),failed=new Set();for(const entry of entries){const id=String(entry.osmId??entry.osm_id??'');if(!/^\d+$/.test(id)||!Array.isArray(entry.candidates))throw Error('Некоректний osmId або candidates');if(entry.status==='failed')failed.add(id);next.set(id,entry.candidates.slice(0,20).filter(c=>c&&typeof c==='object').map(c=>({street:String(c.street??'').slice(0,120),name:String(c.name??c.number??'').slice(0,40),dist_meters:Number(c.dist_meters)})));}comparisonData=next;comparisonFailed=failed;refreshVisicomLegend();scheduleRender();info.textContent='Завантажено локально '+next.size+' наборів кандидатів. Дані не публікуються.';if(selectedBuilding!=null){const selected=buildingData?.features.find(f=>String(f.properties.id)===String(selectedBuilding));if(selected)drawCandidates(selected.properties)}}catch(error){info.textContent='Помилка JSON: '+error.message;}e.target.value='';});document.getElementById('closeInspect').onclick=()=>{selectedBuilding=null;inspectCard.hidden=true;scheduleRender()};document.getElementById('copyInspect').onclick=()=>{if(selectedCoords&&navigator.clipboard?.writeText)navigator.clipboard.writeText(selectedCoords.join(', '))};inspectToggle.addEventListener('change',()=>{if(inspectToggle.checked){document.getElementById('showBuildings').checked=true;if(map.getZoom()<16)map.setZoom(16)}else{selectedBuilding=null;inspectCard.hidden=true}scheduleRender()});function inspectFeature(f,l){selectedBuilding=f.properties.id;const p=f.properties;const center=l.getBounds().getCenter();selectedCoords=[center.lat.toFixed(6),center.lng.toFixed(6)];inspectInfo.textContent='OSM way '+p.id+' · '+(p.building||'building')+' · адреса: '+([p.street,p.housenumber].filter(Boolean).join(', ')||'немає')+' · центр: '+selectedCoords.join(', ')+(pointMatching?.get(p.id)?.length?' · адресних точок: '+pointMatching.get(p.id).length:'');inspectCard.hidden=false;drawCandidates(p);l.bringToFront();}
 function offsetCoords(latlngs,offset){let points=latlngs.map(p=>map.latLngToLayerPoint(p));return points.map((p,i)=>{let prev=points[Math.max(0,i-1)],next=points[Math.min(points.length-1,i+1)];let dx=next.x-prev.x,dy=next.y-prev.y,len=Math.hypot(dx,dy)||1;return map.layerPointToLatLng(L.point(p.x-dy/len*offset,p.y+dx/len*offset))})}
 function color(id,side){const c=['#ffcc20','#3366bf','#a13d43'];let n=0;for(const ch of String(id))n=(n*33+ch.charCodeAt(0))>>>0;return c[(n+(side==='R'?1:0))%3]}
@@ -305,7 +369,7 @@ Promise.all([fetch('./data/boundary.geojson').then(r=>r.ok?r.json():null).catch(
   {title:'Підкладка',ids:['basemap','localTilesUrl','compareFootprints','visicomStatus']},
   {title:'Будівлі',ids:['showBuildings','showMask','showVisicomPolygons']},
   {title:'Адреси',ids:['addressMode','addressStats','showAddressPoints','pointStats']},
-  {title:'Діагностика',ids:['inspectBuildings','visicomColorMode','visicomLegend','visicomImport','visicomPassword','visicomImportStatus','restoreVisicomCache','unifiedBuildings','unifiedStats','showGeometryMatches','geometryStats','iouHigh','iouMedium','iouLow','overlapThreshold','clipVisicomBoundary','showGeometryConflicts','conflictStats','clearVisicomPolygons']},
+  {title:'Діагностика',ids:['inspectBuildings','visicomColorMode','visicomLegend','visicomImport','unifiedBuildingsUrl','visicomPassword','visicomImportStatus','restoreVisicomCache','unifiedBuildings','unifiedStats','showGeometryMatches','geometryStats','iouHigh','iouMedium','iouLow','overlapThreshold','clipVisicomBoundary','showGeometryConflicts','conflictStats','clearVisicomPolygons']},
   {title:'Лінії вулиць',ids:['width','offset','centerline','streetLabels']}
  ];
  const parent=document.getElementById('body');
