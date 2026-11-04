@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       visicom_run_id:
-        description: Optional Visicom Full Feature Export run ID (must have available artifact); empty = retrieve fresh Visicom data
+        description: Optional Visicom Full Feature Export run ID; empty = load archived encrypted file from R2
         required: false
         default: ''
         type: string
@@ -46,24 +46,23 @@ jobs:
           run-id: ${{ inputs.visicom_run_id }}
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/visicom-source
-      - name: Discover Visicom addresses afresh
+      - name: Download encrypted Visicom export from R2 (no Visicom API calls)
         if: inputs.visicom_run_id == ''
         env:
-          VISICOM_API_KEY: ${{ secrets.VISICOM_API_KEY }}
-          VISICOM_EXPORT_PASSWORD: ${{ secrets.VISICOM_EXPORT_PASSWORD }}
-          VISICOM_IDS_ONLY: '1'
-          VISICOM_MAX_CELLS: '1500'
-          VISICOM_EXPORT_PATH: ${{ runner.temp }}/visicom-source/index.enc.json
-        run: node scripts/visicom-spatial.mjs
-      - name: Fetch all Visicom polygons afresh
-        if: inputs.visicom_run_id == ''
-        env:
-          VISICOM_API_KEY: ${{ secrets.VISICOM_API_KEY }}
-          VISICOM_EXPORT_PASSWORD: ${{ secrets.VISICOM_EXPORT_PASSWORD }}
-          VISICOM_INDEX_FILE: ${{ runner.temp }}/visicom-source/index.enc.json
-          VISICOM_EXPORT_PATH: ${{ runner.temp }}/visicom-source/visicom-buildings.enc.json
-          VISICOM_CHECKPOINT_PATH: ${{ runner.temp }}/visicom-source/checkpoint.enc.json
-        run: node scripts/visicom-full-features.mjs
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          set -euo pipefail
+          test -n "$R2_ACCOUNT_ID" && test -n "$R2_BUCKET" || { echo 'R2 variables missing'; exit 1; }
+          python -m pip install --disable-pip-version-check 'awscli>=1.40,<3'
+          mkdir -p "$RUNNER_TEMP/visicom-source"
+          aws s3 cp "s3://${R2_BUCKET}/borodianka/source/visicom-buildings.enc.json" \
+            "$RUNNER_TEMP/visicom-source/visicom-buildings.enc.json" \
+            --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" --no-progress
+          test -s "$RUNNER_TEMP/visicom-source/visicom-buildings.enc.json"
       - name: Merge and encrypt unified buildings (do not commit Visicom data)
         env:
           VISICOM_EXPORT_PASSWORD: ${{ secrets.VISICOM_EXPORT_PASSWORD }}
