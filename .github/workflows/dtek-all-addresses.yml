@@ -2,9 +2,12 @@ name: DTEK KREM all Borodianka addresses vs buildings
 
 on:
   push:
-    branches: [feature/dtek-address-matching]
+    branches: [main]
     paths:
       - '.github/workflows/dtek-all-addresses.yml'
+      - 'scripts/fetch_dtek_shared_houses.py'
+      - 'scripts/match_dtek_buildings.py'
+      - 'scripts/test_match_dtek_buildings.py'
   workflow_dispatch:
 
 permissions:
