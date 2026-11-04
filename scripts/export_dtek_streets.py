@@ -43,6 +43,28 @@ async def capture(url, city_pattern):
                 await page.wait_for_timeout(1500)
             if found is None:
                 title = await page.title()
+                print(f"Diagnostic title: {title!r}", file=sys.stderr)
+                for frame in page.frames[:12]:
+                    # Only record public URL origins/path and structural indicators;
+                    # do not copy cookies, response bodies, or signed query strings.
+                    try:
+                        diag = await frame.evaluate("""() => ({
+                            hasScheduleName: document.documentElement.outerHTML.includes('DisconSchedule'),
+                            iframes: [...document.querySelectorAll('iframe')].slice(0, 8).map(e => {
+                                try { let u = new URL(e.src, location.href); return u.origin + u.pathname; }
+                                catch { return 'invalid iframe URL'; }
+                            }),
+                            scripts: [...document.scripts].slice(-20).map(e => {
+                                if (!e.src) return '(inline)';
+                                let u = new URL(e.src); return u.origin + u.pathname;
+                            }),
+                            hasCityFields: !!document.querySelector('[name*=city], [id*=city], [name*=street], [id*=street]'),
+                        })""")
+                        from urllib.parse import urlsplit
+                        u = urlsplit(frame.url)
+                        print("Frame: " + json.dumps({"url": f"{u.scheme}://{u.netloc}{u.path}", **diag}, ensure_ascii=False), file=sys.stderr)
+                    except Exception as exc:
+                        print(f"Frame diagnostics unavailable: {type(exc).__name__}", file=sys.stderr)
                 raise RuntimeError(
                     "DTEK did not expose DisconSchedule.streets to the browser. "
                     f"Page title: {title!r}. Access may be blocked or the site's schema changed."
