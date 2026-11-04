@@ -63,3 +63,37 @@ recorded as `source_error`, never as an absent street or empty house.
 Do not turn on real outage colors based on these diagnostic results:
 current data collection only returns house number keys. Live outage
 interpretation and address validation remain separate tasks.
+
+## Full two-directory pilot (4 November 2026)
+
+GitHub Actions [run 41908662069](https://github.com/truephp/borodianka-map/actions/runs/41908662069)
+completed **successfully**. All **107** queried settlement/street pairs returned
+valid responses; the special entry `Без вулиці` was not queried.
+There were **2,956 DTEK house-number entries** (records, not necessarily
+unique physical buildings). No response failed.
+
+| Match class | Public OSM buildings | Private unified Visicom+OSM buildings |
+|---|---:|---:|
+| Exactly one strict building match | 61 | 24 |
+| Several strict matches (ambiguous) | 13 | 4 |
+| Review candidate: house number spelling only | 13 | 5 |
+| Review candidate: street type missing or different | 1 | 1,942 |
+| Review candidate: both street type and number | 0 | 46 |
+| No matching building address | 2,868 | 935 |
+| **Total DTEK entries** | **2,956** | **2,956** |
+
+Full private match candidates are stored **only as encrypted JSON** in the
+seven-day `dtek-borodianka-full-address-audit` artifact.
+Public Actions summaries contain aggregates, not decrypted Visicom addresses.
+
+The unified layer had **2,530 features with address fields**, including
+2,477 Visicom and 53 supplemental OSM. This is a **different dataset**
+from the public `data/buildings.geojson`, which had 128 OSM features
+with both street and house address fields in this diagnostic.
+
+Important: `candidate_street_type` is deliberately **not** a confirmed
+link. Visicom often stores a bare street name, without whether it is a
+street or lane; `candidate_street_and_house_format` further relaxes
+spelling of house suffix/slash. Manual validation must follow before
+rendering per-building DTEK statuses. Ambiguous multi-feature matches also
+need resolution. The two DTEK city keys remain independent in all records.
