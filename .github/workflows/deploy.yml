@@ -3,10 +3,6 @@ on:
   push:
     branches: [perf/pill-labels-153ed518]
   workflow_dispatch:
-  workflow_run:
-    workflows: ["Import OSM data"]
-    types: [completed]
-    branches: [main]
 permissions:
   contents: read
   pages: write
