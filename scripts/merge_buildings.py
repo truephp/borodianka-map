@@ -15,7 +15,7 @@ from secrets import token_bytes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
-from shapely.geometry import shape, mapping
+from shapely.geometry import shape
 from shapely.strtree import STRtree
 
 ITERATIONS = 210000
@@ -126,7 +126,7 @@ def create_merged(visicom_collection, osm_collection, boundary_collection,
             if matched:
                 continue
         supplemental.append({"type": "Feature", "geometry": f["geometry"],
-                             "properties": {"source": "osm", "sourceId": oid, "osmId": oid,
+                             "properties": {"source": "osm", "sourceId": oid, "osmId": oid, "id": oid,
                                             "street": p.get("street") or None,
                                             "housenumber": p.get("housenumber") or None,
                                             "building": p.get("building") or None,
