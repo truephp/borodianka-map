@@ -1,7 +1,5 @@
-name: Deploy site (temporary pill-label baseline)
+name: Deploy site (temporary pill-label baseline, manual only)
 on:
-  push:
-    branches: [perf/pill-labels-153ed518]
   workflow_dispatch:
 permissions:
   contents: read
