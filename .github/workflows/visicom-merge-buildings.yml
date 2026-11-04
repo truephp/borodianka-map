@@ -75,6 +75,28 @@ jobs:
             --osm data/buildings.geojson --boundary data/boundary.geojson \
             --iou "$IOU" --overlap "$OVERLAP" \
             --output "$RUNNER_TEMP/unified/borodianka-buildings.enc.json"
+      - name: Publish encrypted GeoJSON directly to Cloudflare R2
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          set -euo pipefail
+          test -n "$R2_ACCOUNT_ID" && test -n "$R2_BUCKET" && test -n "$AWS_ACCESS_KEY_ID" && test -n "$AWS_SECRET_ACCESS_KEY" || { echo 'Missing R2 configuration'; exit 1; }
+          python -m pip install --disable-pip-version-check 'awscli>=1.40,<3'
+          endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          source="$RUNNER_TEMP/unified/borodianka-buildings.enc.json"
+          key="borodianka/data/borodianka-buildings.enc.json"
+          aws s3 cp "$source" "s3://${R2_BUCKET}/${key}" \
+            --endpoint-url "$endpoint" --no-progress \
+            --content-type 'application/json' \
+            --cache-control 'public, max-age=60, must-revalidate'
+          aws s3 cp "s3://${R2_BUCKET}/${key}" "$RUNNER_TEMP/verify-buildings.enc.json" \
+            --endpoint-url "$endpoint" --no-progress
+          cmp --silent "$source" "$RUNNER_TEMP/verify-buildings.enc.json"
+          echo "Published and verified encrypted GeoJSON in R2: ${key}"
       - name: Upload encrypted unified buildings for map
         uses: actions/upload-artifact@v4
         with:
