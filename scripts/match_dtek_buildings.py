@@ -69,10 +69,14 @@ def match_houses(responses, building_records, aliases=None):
     aliases = aliases or {}
     idx = defaultdict(list)
     loose_idx = defaultdict(list)
+    name_idx = defaultdict(list)
+    name_loose_idx = defaultdict(list)
     for building in building_records:
         key = (building["kind"], building["streetKey"])
         idx[(key, building["houseKey"])].append(building)
         loose_idx[(key, house_candidate_key(building["house"]))].append(building)
+        name_idx[(building["streetKey"], building["houseKey"])].append(building)
+        name_loose_idx[(building["streetKey"], house_candidate_key(building["house"]))].append(building)
 
     out, counts = [], Counter()
     for entry in responses:
@@ -102,9 +106,17 @@ def match_houses(responses, building_records, aliases=None):
                 status = "exact" if len(exact) == 1 else "multiple"
                 matches = exact
             elif candidate:
-                status, matches = "candidate", candidate
+                status, matches = "candidate_house_format", candidate
             else:
-                status, matches = "unmatched", []
+                same_name = name_idx.get((street_name, house_key(house)), [])
+                same_name_variant = name_loose_idx.get((street_name, house_candidate_key(house)), [])
+                if same_name:
+                    # Visicom often lacks a road type; a lane may share a street name.
+                    status, matches = "candidate_street_type", same_name
+                elif same_name_variant:
+                    status, matches = "candidate_street_and_house_format", same_name_variant
+                else:
+                    status, matches = "unmatched", []
             counts[status] += 1
             out.append({"city": city, "street": street, "house": house, "status": status,
                         "links": [{"source": b["source"], "id": b["id"],
