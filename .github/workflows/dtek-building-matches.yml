@@ -1,0 +1,93 @@
+name: DTEK address to building diagnostic (OSM and encrypted Visicom)
+
+on:
+  push:
+    branches: [feature/dtek-address-matching]
+    paths:
+      - '.github/workflows/dtek-building-matches.yml'
+      - 'scripts/match_dtek_buildings.py'
+      - 'scripts/test_match_dtek_buildings.py'
+  workflow_dispatch:
+    inputs:
+      dtek_run_id:
+        description: DTEK shared-houses Actions run with 14 house-number responses
+        type: string
+        default: '41906649117'
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  match:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Unit tests
+        run: python -m unittest scripts.test_match_dtek_buildings -v
+      - name: Download previous 14 DTEK house lists
+        uses: actions/download-artifact@v4
+        with:
+          name: dtek-borodianka-seven-streets
+          run-id: ${{ inputs.dtek_run_id || '41906649117' }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/dtek
+      - name: Match against public OSM buildings
+        run: |
+          python scripts/match_dtek_buildings.py \
+            --dtek "$RUNNER_TEMP/dtek/dtek-shared-houses-raw.json" \
+            --osm data/buildings.geojson \
+            --output "$RUNNER_TEMP/dtek-osm-address-matches.json" \
+            --summary "$RUNNER_TEMP/dtek-osm-summary.json"
+      - name: Install libraries for encrypted unified buildings and R2
+        run: python -m pip install --disable-pip-version-check 'cryptography>=43,<47' 'shapely>=2,<3' 'awscli>=1.40,<3'
+      - name: Download encrypted Visicom-first unified buildings from R2
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          set -euo pipefail
+          test -n "$R2_ACCOUNT_ID" && test -n "$R2_BUCKET"
+          test -n "$AWS_ACCESS_KEY_ID" && test -n "$AWS_SECRET_ACCESS_KEY"
+          aws s3 cp "s3://${R2_BUCKET}/borodianka/data/borodianka-buildings.enc.json" \
+            "$RUNNER_TEMP/borodianka-buildings.enc.json" \
+            --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" --no-progress
+      - name: Match against decrypted unified layer in memory; encrypt detailed result
+        env:
+          VISICOM_EXPORT_PASSWORD: ${{ secrets.VISICOM_EXPORT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          python scripts/match_dtek_buildings.py \
+            --dtek "$RUNNER_TEMP/dtek/dtek-shared-houses-raw.json" \
+            --visicom-encrypted "$RUNNER_TEMP/borodianka-buildings.enc.json" \
+            --output "$RUNNER_TEMP/dtek-visicom-address-matches.enc.json" \
+            --summary "$RUNNER_TEMP/dtek-unified-summary.json"
+          python - "$RUNNER_TEMP/dtek-osm-summary.json" "$RUNNER_TEMP/dtek-unified-summary.json" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json,sys
+          print("## DTEK address to buildings, 7 shared streets / 2 city keys")
+          print("| Metric | OSM | Unified Visicom+OSM |")
+          print("|---|---:|---:|")
+          osm, unified = [json.load(open(p,encoding="utf-8")) for p in sys.argv[1:]]
+          for key in ("exact", "multiple", "candidate", "unmatched", "source_error"):
+              print(f"| {key} | {osm['counts'].get(key,0)} | {unified['counts'].get(key,0)} |")
+          print("\nDetailed unified report is **encrypted**; no plaintext Visicom addresses or geometry are uploaded.")
+          PY
+      - name: Upload public OSM diagnostics and private encrypted merged diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: dtek-building-address-audit
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/dtek-osm-address-matches.json
+            ${{ runner.temp }}/dtek-osm-summary.json
+            ${{ runner.temp }}/dtek-unified-summary.json
+            ${{ runner.temp }}/dtek-visicom-address-matches.enc.json
