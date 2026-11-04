@@ -1,7 +1,7 @@
-name: Deploy site
+name: Deploy site (temporary pill-label baseline)
 on:
   push:
-    branches: [main]
+    branches: [perf/pill-labels-153ed518]
   workflow_dispatch:
   workflow_run:
     workflows: ["Import OSM data"]
@@ -16,7 +16,6 @@ concurrency:
   cancel-in-progress: true
 jobs:
   deploy:
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -24,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: perf/pill-labels-153ed518
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
