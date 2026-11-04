@@ -88,8 +88,20 @@ async def main_async(directory, output, update_fact, delay_seconds, all_streets=
                         keys = list(data.keys()) if isinstance(data, dict) else data
                         if not all(isinstance(k, str) for k in keys):
                             raise RuntimeError("House number list has non-string entries")
-                        # Do not publish outage status details in diagnostic artifacts.
-                        clean = {"result": True, "data": {key: None for key in keys}}
+                        # Retain the original seven DTEK per-house outage fields.
+                        # The complete source and matching reports stay in Actions;
+                        # only the final AES-GCM encrypted report is served by Pages.
+                        fields = ("cek", "start_date", "end_date", "sub_type",
+                                  "sub_type_reason", "type", "voluntarily")
+                        if isinstance(data, dict):
+                            clean_data = {
+                                house: {field: value[field] for field in fields if field in value}
+                                if isinstance(value, dict) else {}
+                                for house, value in data.items()
+                            }
+                        else:
+                            clean_data = {house: {} for house in keys}
+                        clean = {"result": True, "data": clean_data}
                         result["responses"].append({"city": city, "street": street, "response": clean})
                         print(f"{city} / {street}: {len(keys)} house numbers", file=sys.stderr)
                     except Exception as exc:
