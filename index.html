@@ -290,34 +290,9 @@ streetLabelSVG.setAttribute('aria-hidden','true');
 map.getPanes().overlayPane.appendChild(streetLabelSVG);
 const streetLabelMeasure=document.createElement('canvas').getContext('2d');
 streetLabelMeasure.font='11px system-ui, sans-serif';
-function clipRoadToViewport(a,b,w,h){
- // Liang–Barsky clipping in screen pixels; keep labels away from viewport edges.
- let t0=0,t1=1,dx=b.x-a.x,dy=b.y-a.y;
- for(const [p,q] of [[-dx,a.x-18],[dx,w-18-a.x],[-dy,a.y-18],[dy,h-18-a.y]]){
-  if(Math.abs(p)<1e-9){if(q<0)return null;continue;}
-  const t=q/p;
-  if(p<0)t0=Math.max(t0,t);else t1=Math.min(t1,t);
-  if(t0>t1)return null;
- }
- return [L.point(a.x+t0*dx,a.y+t0*dy),L.point(a.x+t1*dx,a.y+t1*dy)];
-}
-function visibleRoadRuns(coords,w,h){
- const runs=[];let current=[];
- function finish(){if(current.length>1)runs.push(current);current=[];}
- for(let i=1;i<coords.length;i++){
-  const a=map.latLngToContainerPoint([coords[i-1][1],coords[i-1][0]]),
-        b=map.latLngToContainerPoint([coords[i][1],coords[i][0]]);
-  const clipped=clipRoadToViewport(a,b,w,h);
-  if(!clipped){finish();continue;}
-  const [start,end]=clipped;
-  if(start.distanceTo(end)<.1)continue;
-  if(current.length&&current[current.length-1].distanceTo(start)>1)finish();
-  if(!current.length)current.push(start);
-  current.push(end);
- }
- finish();
- return runs;
-}
+// The set of label anchors is calculated in world pixels for the zoom level,
+// NEVER from clipped/visible road portions. Panning only changes SVG coordinates.
+let stableStreetLabelZoom=null,stableStreetLabels=[],streetLabelRenderVersion=0;
 function roadLabelPosition(points){
  let length=0;
  for(let i=1;i<points.length;i++)length+=points[i-1].distanceTo(points[i]);
@@ -328,7 +303,7 @@ function roadLabelPosition(points){
   if(travelled+seg>=length/2){
    const t=(length/2-travelled)/seg;
    const mid=points[i-1].add(points[i].subtract(points[i-1]).multiplyBy(t));
-   const start=points[Math.max(0,i-1)],end=points[i];
+   const start=points[i-1],end=points[i];
    return {mid,angle:Math.atan2(end.y-start.y,end.x-start.x),length};
   }
   travelled+=seg;
@@ -336,7 +311,6 @@ function roadLabelPosition(points){
  return null;
 }
 function roadLabelRect(position,width){
- // Conservative oriented bounding box for collision detection.
  const {mid,angle}=position,cos=Math.cos(angle),sin=Math.sin(angle);
  return {center:mid,axis:[{x:cos,y:sin},{x:-sin,y:cos}],half:[width/2+10,11]};
 }
@@ -348,62 +322,79 @@ function roadLabelsOverlap(a,b){
  }
  return true;
 }
+function buildStableStreetLabels(){
+ const zoom=map.getZoom();
+ if(stableStreetLabelZoom===zoom)return;
+ stableStreetLabelZoom=zoom;
+ stableStreetLabels=[];
+ if(zoom<15||!features.length)return;
+ const options=[];
+ for(const f of features){
+  const name=String(f.properties?.name||'').trim();
+  if(!name||name==='Без назви'||f.geometry?.type!=='LineString'||f.geometry.coordinates.length<2)continue;
+  const width=streetLabelMeasure.measureText(name).width;
+  let points=f.geometry.coordinates.map(([lon,lat])=>map.project([lat,lon],zoom));
+  const first=points[0],last=points[points.length-1];
+  if(first.x>last.x||(Math.abs(first.x-last.x)<1&&first.y<last.y))points=points.reverse();
+  const pos=roadLabelPosition(points);
+  if(!pos||pos.length<width+28)continue;
+  options.push({name,points,pos,width,id:String(f.properties?.id||'')});
+ }
+ // Stable order independent of where the viewport currently is.
+ options.sort((a,b)=>b.pos.length-a.pos.length||a.name.localeCompare(b.name,'uk')||a.id.localeCompare(b.id));
+ const occupied=[],byName=new Map();
+ for(const candidate of options){
+  const previous=byName.get(candidate.name)||[];
+  // Repeat a long street only at well-separated, fixed geographic positions.
+  if(previous.some(p=>p.distanceTo(candidate.pos.mid)<Math.max(480,candidate.width*3)))continue;
+  const rect=roadLabelRect(candidate.pos,candidate.width);
+  if(occupied.some(other=>roadLabelsOverlap(rect,other)))continue;
+  stableStreetLabels.push(candidate);
+  occupied.push(rect);
+  previous.push(candidate.pos.mid);
+  byName.set(candidate.name,previous);
+ }
+}
 function renderStreetLabels(){
  streetLabelSVG.replaceChildren();
  if(baseMapSelect.value!=='local'||!document.getElementById('streetLabels').checked||map.getZoom()<15||!features.length)return;
+ buildStableStreetLabels();
  const sz=map.getSize(),w=sz.x,h=sz.y;
  streetLabelSVG.setAttribute('width',w);
  streetLabelSVG.setAttribute('height',h);
  streetLabelSVG.setAttribute('viewBox','0 0 '+w+' '+h);
  L.DomUtil.setPosition(streetLabelSVG,map.containerPointToLayerPoint(L.point(0,0)));
- const byName=new Map();
- for(const f of features){
-  const name=String(f.properties?.name||'').trim();
-  if(!name||name==='Без назви'||f.geometry?.type!=='LineString'||f.geometry.coordinates.length<2)continue;
-  const labelWidth=streetLabelMeasure.measureText(name).width;
-  for(const raw of visibleRoadRuns(f.geometry.coordinates,w,h)){
-   let points=raw;
-   const pos=roadLabelPosition(points);
-   if(!pos||pos.length<labelWidth+25)continue;
-   // SVG textPath should read from left to right (bottom to top for vertical roads).
-   const first=points[0],last=points[points.length-1];
-   if(first.x>last.x||Math.abs(first.x-last.x)<1&&first.y<last.y)points=[...points].reverse();
-   const oriented=roadLabelPosition(points);
-   if(!oriented)continue;
-   const candidate={name,points,pos:oriented,labelWidth};
-   const list=byName.get(name)||[];
-   list.push(candidate);
-   byName.set(name,list);
-  }
- }
- const candidates=[...byName.values()].flatMap(entries=>entries.sort((a,b)=>b.pos.length-a.pos.length).slice(0,2));
- candidates.sort((a,b)=>b.pos.length-a.pos.length);
- const occupied=[],used=new Set(),defs=document.createElementNS(streetLabelNS,'defs');
+ const origin=map.getPixelOrigin(),pane=map._getMapPanePos();
+ const toScreen=p=>L.point(p.x-origin.x+pane.x,p.y-origin.y+pane.y);
+ const defs=document.createElementNS(streetLabelNS,'defs');
  streetLabelSVG.appendChild(defs);
  let count=0;
- for(const entry of candidates){
-  if(used.has(entry.name))continue;
-  const rect=roadLabelRect(entry.pos,entry.labelWidth);
-  if(occupied.some(other=>roadLabelsOverlap(rect,other)))continue;
+ for(const entry of stableStreetLabels){
+  const center=toScreen(entry.pos.mid);
+  if(center.x<0||center.x>w||center.y<0||center.y>h)continue;
   const id='street-label-path-'+count;
   const path=document.createElementNS(streetLabelNS,'path');
   path.setAttribute('id',id);
-  path.setAttribute('d',entry.points.map((p,i)=>(i?'L':'M')+p.x.toFixed(1)+' '+p.y.toFixed(1)).join(' '));
+  path.setAttribute('d',entry.points.map((p,i)=>{
+   const pt=toScreen(p);
+   return (i?'L':'M')+pt.x.toFixed(1)+' '+pt.y.toFixed(1);
+  }).join(' '));
   defs.appendChild(path);
-  const text=document.createElementNS(streetLabelNS,'text');
-  text.setAttribute('class','street-label-text');
-  text.setAttribute('text-anchor','middle');
-  text.setAttribute('dy','-3');
-  const tp=document.createElementNS(streetLabelNS,'textPath');
-  tp.setAttribute('href','#'+id);
-  tp.setAttribute('startOffset','50%');
-  tp.textContent=entry.name;
-  text.appendChild(tp);
-  streetLabelSVG.appendChild(text);
-  occupied.push(rect);used.add(entry.name);
-  if(++count>=80)break;
+  const label=document.createElementNS(streetLabelNS,'text');
+  label.setAttribute('class','street-label-text');
+  label.setAttribute('text-anchor','middle');
+  label.setAttribute('dy','-3');
+  const textPath=document.createElementNS(streetLabelNS,'textPath');
+  textPath.setAttribute('href','#'+id);
+  textPath.setAttribute('startOffset','50%');
+  textPath.textContent=entry.name;
+  label.appendChild(textPath);
+  streetLabelSVG.appendChild(label);
+  count++;
  }
 }
+// The map pane already moves the SVG during dragging; only refresh its viewport
+// after movement. Zoom changes rebuild the fixed anchors at the new pixel scale.
 map.on('moveend zoomend resize',renderStreetLabels);
 document.getElementById('streetLabels').addEventListener('change',renderStreetLabels);
 function render(){group.clearLayers();let width=Number(inputs[0].value),offset=Number(inputs[1].value);document.getElementById('widthOut').textContent=width;document.getElementById('offsetOut').textContent=offset;
@@ -439,7 +430,7 @@ div.append(bold,document.createElement('br'),document.createTextNode('OSM way '+
 let renderHandle;function scheduleRender(){cancelAnimationFrame(renderHandle);renderHandle=requestAnimationFrame(()=>{render();renderArea()})}
 inputs.forEach(el=>el.addEventListener('input',scheduleRender));['showBuildings','showMask'].forEach(id=>document.getElementById(id).addEventListener('change',scheduleRender));map.on('zoomend',scheduleRender);pointToggle.addEventListener('change',()=>{quickPoints.classList.toggle('active',pointToggle.checked);if(addressPoints)quickPoints.textContent='Знайдені адреси: '+addressPoints.features.length+(pointToggle.checked?' ✓':'');if(pointToggle.checked&&map.getZoom()<15)map.setZoom(15);scheduleRender()});
 fetch('./data/address-points.geojson',{cache:'no-cache'}).then(r=>r.ok?r.json():null).then(data=>{addressPoints=data;if(data){quickPoints.disabled=false;quickPoints.textContent='Знайдені адреси: '+data.features.length;calculateMatches();renderArea()}else pointStats.textContent='Адресні точки ще не імпортовано. Запусти Import OSM data.'}).catch(e=>{pointStats.textContent='Помилка завантаження адресних точок: '+e.message});
-Promise.all([fetch('./data/boundary.geojson').then(r=>r.ok?r.json():null).catch(()=>null),fetch('./data/buildings.geojson').then(r=>r.ok?r.json():null).catch(()=>null)]).then(([b,build])=>{boundaryData=b;buildingData=build;recalculateGeometryMatches();renderVisicomPolygons();calculateMatches();refreshVisicomLegend();if(build){const total=build.features.length,complete=build.features.filter(f=>f.properties.street&&f.properties.housenumber).length,partial=build.features.filter(f=>(f.properties.street||f.properties.housenumber)&&!(f.properties.street&&f.properties.housenumber)).length;addressStats.textContent='Адресні теги будівель: '+complete+' повних, '+partial+' часткових, '+(total-complete-partial)+' без адреси. Зелений — повна адреса, жовтий — часткова, рожевий — адреси немає. У режимі діагностики будівлі видно на будь-якому масштабі.';}renderArea();if(b){const bounds=L.geoJSON(b).getBounds();if(bounds.isValid()){map.setMaxBounds(bounds.pad(0.18));map.fitBounds(bounds,{maxZoom:14,padding:[16,16]})}}if(features.length)render();});fetch('./data/roads.geojson',{cache:'no-cache'}).then(r=>{if(!r.ok)throw Error('HTTP '+r.status+'; спочатку запусти workflow Import OSM data');return r.json()}).then(data=>{features=(data.features||[]).filter(f=>f.geometry?.type==='LineString');status.textContent='Завантажено '+features.length+' сегментів вулиць'+(buildingData?' · '+buildingData.features.length+' будівель':'')+'. Кольори демонстраційні.';if(!features.length)throw Error('Файл доріг порожній');render();renderStreetLabels();const bounds=L.geoJSON(data).getBounds();if(bounds.isValid() && !boundaryData)map.fitBounds(bounds.pad(.04),{maxZoom:14})}).catch(e=>{status.textContent='Дороги не завантажено: '+e.message;status.style.color='#ff9c9c';body.hidden=false});
+Promise.all([fetch('./data/boundary.geojson').then(r=>r.ok?r.json():null).catch(()=>null),fetch('./data/buildings.geojson').then(r=>r.ok?r.json():null).catch(()=>null)]).then(([b,build])=>{boundaryData=b;buildingData=build;recalculateGeometryMatches();renderVisicomPolygons();calculateMatches();refreshVisicomLegend();if(build){const total=build.features.length,complete=build.features.filter(f=>f.properties.street&&f.properties.housenumber).length,partial=build.features.filter(f=>(f.properties.street||f.properties.housenumber)&&!(f.properties.street&&f.properties.housenumber)).length;addressStats.textContent='Адресні теги будівель: '+complete+' повних, '+partial+' часткових, '+(total-complete-partial)+' без адреси. Зелений — повна адреса, жовтий — часткова, рожевий — адреси немає. У режимі діагностики будівлі видно на будь-якому масштабі.';}renderArea();if(b){const bounds=L.geoJSON(b).getBounds();if(bounds.isValid()){map.setMaxBounds(bounds.pad(0.18));map.fitBounds(bounds,{maxZoom:14,padding:[16,16]})}}if(features.length)render();});fetch('./data/roads.geojson',{cache:'no-cache'}).then(r=>{if(!r.ok)throw Error('HTTP '+r.status+'; спочатку запусти workflow Import OSM data');return r.json()}).then(data=>{features=(data.features||[]).filter(f=>f.geometry?.type==='LineString');status.textContent='Завантажено '+features.length+' сегментів вулиць'+(buildingData?' · '+buildingData.features.length+' будівель':'')+'. Кольори демонстраційні.';if(!features.length)throw Error('Файл доріг порожній');stableStreetLabelZoom=null;render();renderStreetLabels();const bounds=L.geoJSON(data).getBounds();if(bounds.isValid() && !boundaryData)map.fitBounds(bounds.pad(.04),{maxZoom:14})}).catch(e=>{status.textContent='Дороги не завантажено: '+e.message;status.style.color='#ff9c9c';body.hidden=false});
 
 // Group existing controls into compact native collapsible sections.
 (function groupSettings(){
