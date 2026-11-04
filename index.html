@@ -29,6 +29,8 @@
 <button type="button" id="dtekReviewReset">Скинути рішення</button>
 <button type="button" id="dtekReviewExport">Експорт рішень JSON</button>
 </div>
+<label>Продовжити перевірку з попереднього експорту
+<input id="dtekReviewImport" type="file" accept=".json,application/json"></label>
 <div id="dtekReviewDecisionStatus" class="small">Рішення зберігаються лише в пам'яті вкладки до експорту.</div>
 </div><label>Картографічна підкладка <select id="basemap" style="width:100%;padding:8px;background:#263b56;color:#fff;border:1px solid #48617f;border-radius:8px"><option value="osm">OpenStreetMap</option><option value="visicom">Visicom</option><option value="local">Локальна OSM (Cloudflare R2)</option></select></label><label>R2: публічна адреса набору тайлів <input id="localTilesUrl" type="url" placeholder="https://tiles.example.com/borodianka/v1" style="width:100%;padding:8px;background:#263b56;color:#fff;border:1px solid #48617f;border-radius:8px"><span class="small">Вкажи URL каталогу версії, без /{z}/{x}/{y}.webp. Збережеться лише у твоєму браузері.</span></label><label><input type="checkbox" id="compareFootprints"> Порівнювати контури OSM з підкладкою Visicom</label><p class="small" id="visicomStatus">Visicom Tiles: доступ залежить від авторизації/домену. Підкладка не надає інтерактивні полігони будівель.</p><label><input type="checkbox" id="addressMode"> Діагностика адрес OSM (зелений / жовтий / рожевий)</label><div id="addressStats" class="small"></div><label><input type="checkbox" id="showAddressPoints"> Показати окремі адресні точки OSM</label><div id="pointStats" class="small">Адресні точки: очікується імпорт.</div><label><input type="checkbox" id="showBuildings" checked> Показувати будівлі при наближенні (zoom 16+)</label><label><input type="checkbox" id="showMask" checked> Ізолювати Бородянку (+120 м за контуром)</label>
 <div class="legend"><span><i class="swatch" style="background:#ffcc20"></i>Демо: є світло</span><span><i class="swatch" style="background:#3366bf"></i>Демо: планове</span><span><i class="swatch" style="background:#a13d43"></i>Демо: аварійне</span></div>
@@ -673,6 +675,28 @@ document.getElementById('dtekReviewExport').addEventListener('click',()=>{
  const url=URL.createObjectURL(blob),a=document.createElement('a');
  a.href=url;a.download='dtek-borodianka-manual-decisions.json';a.click();
  setTimeout(()=>URL.revokeObjectURL(url),1000);
+});
+// Resume a previous manual review without caching sensitive addresses.
+document.getElementById('dtekReviewImport').addEventListener('change',async e=>{
+ const file=e.target.files?.[0];if(!file)return;
+ try{
+  if(!dtekReviewRecords.length)throw Error('Спочатку завантаж зашифрований звіт ДТЕК.');
+  if(file.size>2e6)throw Error('Файл рішень завеликий');
+  const payload=JSON.parse(await file.text());
+  if(payload.schemaVersion!==1||payload.source!=='manual-dtek-borodianka-review'||!Array.isArray(payload.decisions))throw Error('Непідтримуваний файл рішень');
+  const records=new Map(dtekReviewRecords.map(r=>[dtekReviewKey(r),r]));
+  const restored=new Map();
+  for(const item of payload.decisions){
+   const key=JSON.stringify([item.city,item.street,item.house]),r=records.get(key);
+   if(!r)continue;
+   if(item.action==='reject')restored.set(key,{action:'reject'});
+   else if(item.action==='confirm'&&(r.links||[]).some(l=>l.source===item.source&&String(l.id)===String(item.id)))
+    restored.set(key,{action:'confirm',source:item.source,id:String(item.id)});
+  }
+  dtekReviewDecisions=restored;
+  dtekReviewCount();dtekReviewDisplay();
+  dtekReviewDecisionStatus.textContent='Відновлено '+restored.size+' рішень із файлу. Нові рішення знову потрібно експортувати.';
+ }catch(err){dtekReviewDecisionStatus.textContent='Не вдалося імпортувати рішення: '+err.message;}
 });
 // Restore highlighting when private unified buildings are loaded later.
 const oldApplyVisicomFeatures=applyVisicomFeatures;
