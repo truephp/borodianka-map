@@ -129,6 +129,21 @@ class AddressMatchingTests(unittest.TestCase):
         report = match_houses([dtek("смт Бородянка", "вул. Заводська", ["3"])], buildings)
         self.assertEqual(report["counts"], {"multiple": 1})
 
+    def test_house_metadata_is_preserved_in_exact_match(self):
+        buildings = list(address_records({"features": [
+            feature("visicom", "v44", "Центральна", "44")
+        ]}))
+        metadata = {
+            "cek": None, "end_date": "", "start_date": "",
+            "sub_type": "", "sub_type_reason": ["GPV1.2"],
+            "type": "", "voluntarily": None,
+        }
+        source = {"city": "с-ще Бородянка", "street": "вул. Центральна",
+                  "response": {"result": True, "data": {"44": metadata}}}
+        report = match_houses([source], buildings)
+        self.assertEqual(report["counts"], {"exact": 1})
+        self.assertEqual(report["records"][0]["dtek"], metadata)
+
     def test_missing_dtek_response_not_empty(self):
         report = match_houses([{"city": "смт Бородянка", "street": "вул. Заводська",
                                "error": "HTTP 403"}], [])
