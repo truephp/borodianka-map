@@ -133,3 +133,42 @@ address, status remains `multiple` rather than `exact`.
 All detailed Visicom-linked results remain encrypted. Counts above are
 safe aggregate diagnostics. The main branch and published map have not
 been changed.
+
+## Manual review overlay — feature branch only
+
+The experimental map's **Налаштування → Діагностика → ДТЕК — перевірка адрес**
+section can read the **encrypted** `dtek-visicom-address-matches.enc.json`
+from the successful [complete matching run #41910246449](https://github.com/truephp/borodianka-map/actions/runs/41910246449)
+(the artifact is `dtek-building-address-audit`, retained seven days).
+The encrypted report must have `schemaVersion: 2`, and can be opened with
+the same `VISICOM_EXPORT_PASSWORD` as the unified Visicom dataset.
+
+Workflow for a reviewer:
+
+1. Open the map **from the feature branch in an isolated test deployment**.
+   This feature is not present in the production `main` build.
+2. In the existing map settings, configure the R2 unified buildings URL and
+   password, then load the buildings.
+3. Select the encrypted matching report file in the new DTEK review section.
+   The list includes **only** ambiguous `multiple`, `candidate_house_format`,
+   `candidate_street_type`, and `candidate_street_and_house_format` entries:
+   184 records in the 4 November 2026 report. Exact and unmatched cases are
+   intentionally not presented for manual confirmation here.
+4. Select an address from the dropdown or click a highlighted polygon on the
+   map. The address, reason for uncertainty, source ID, original building
+   street and house number are shown. Use the contour dropdown to specify
+   which source polygon the address should refer to.
+5. Click **Підтвердити контур** (only after selecting an exact candidate)
+   or **Відхилити**; optionally **Скинути рішення**. Use
+   **Експорт рішень JSON** to download a review file. On another visit,
+   import the encrypted report first and then use the separate
+   **Продовжити перевірку з попереднього експорту** input to restore
+   decisions. Imported approvals are validated against current candidate
+   IDs; unknown links are ignored.
+
+No manual decision is automatically incorporated into the source address
+index or electricity status map. This is a **review-only workflow**:
+plaintext Visicom-linked reports are never uploaded or persisted in browser
+storage, and unencrypted manual exports are created only by a user click.
+Handle downloaded decision files privately because they contain original
+DTEK address strings and Visicom building IDs.
