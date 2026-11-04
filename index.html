@@ -4,7 +4,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
 *{box-sizing:border-box}html,body{height:100%;width:100%;margin:0;overflow:hidden;overscroll-behavior:none}body{position:fixed;inset:0;font:14px system-ui,sans-serif;background:#0b111d;color:#e5ecf9}#map{position:absolute;inset:0;width:100%;height:100%;overflow:hidden}
-.street-name-label{color:#dce6f3;background:#111a2bd9;border:1px solid #41566b99;border-radius:4px;padding:2px 4px;white-space:nowrap;font:11px/1.25 system-ui,sans-serif;text-align:center;text-shadow:0 1px 2px #000;box-shadow:0 1px 3px #0009;pointer-events:none}.leaflet-tile{filter:grayscale(1) brightness(.47) contrast(1.15)}.local-basemap .leaflet-tile{filter:none}.leaflet-container{background:#0b111d}
+.street-label-overlay{position:absolute;overflow:visible;pointer-events:none;z-index:650}.street-label-text{font:11px system-ui,sans-serif;fill:#e6edf6;stroke:#101a27;stroke-width:3.2px;stroke-linejoin:round;paint-order:stroke fill;letter-spacing:.05px;pointer-events:none}.leaflet-tile{filter:grayscale(1) brightness(.47) contrast(1.15)}.local-basemap .leaflet-tile{filter:none}.leaflet-container{background:#0b111d}
 .panel{position:absolute;top:12px;left:12px;z-index:1000;background:#111a2bee;border:1px solid #394860;border-radius:14px;padding:13px;max-width:min(450px,calc(100vw - 24px));box-shadow:0 8px 25px #0008;max-height:calc(100vh - 24px);max-height:calc(100dvh - 24px);overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y}
 .row{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}.mode-button.active{background:#9d174d;border-color:#f9a8d4;color:#fff}.title{font-size:18px;font-weight:700}.panel button{background:#263b56;color:white;border:1px solid #48617f;border-radius:8px;padding:8px;cursor:pointer}.body{margin-top:10px}.body[hidden]{display:none}label{display:block;margin:12px 0}input[type=range]{width:100%}.status{font-size:13px;color:#afc1d9;max-width:380px;line-height:1.4}.legend{display:flex;gap:10px;flex-wrap:wrap;margin:9px 0}.swatch{display:inline-block;width:20px;height:5px;border-radius:5px;vertical-align:middle;margin-right:4px}.small{font-size:12px;color:#9bb0ca}.leaflet-control-attribution{font-size:10px}.inspect-card{position:absolute;z-index:1002;bottom:28px;left:12px;max-width:min(360px,calc(100vw - 90px));background:#101c31f2;border:1px solid #22d3ee;border-radius:12px;padding:12px;box-shadow:0 4px 18px #0009;font-size:13px}.inspect-card[hidden]{display:none}.inspect-card button{background:#263b56;color:white;border:1px solid #48617f;border-radius:6px;padding:5px 9px}.inspect-card p{margin:7px 0}.inspect-card strong{color:#67e8f9}.setting-section{border:1px solid #394860;border-radius:8px;padding:7px 10px;margin:8px 0}.setting-section>summary{cursor:pointer;font-weight:650;padding:3px 0}.setting-section>label{margin:8px 0}.setting-section .small{margin:7px 0}
 </style></head><body><div id="map"></div>
@@ -281,52 +281,130 @@ if(envelope){json=await decryptVisicomFile(envelope,visicomPasswordInput.value);
 if(json.type==='FeatureCollection'&&Array.isArray(json.features)){const count=applyVisicomFeatures(json);if(envelope){try{await cacheVisicomFile(envelope);}catch(err){info.textContent='Завантажено '+count+' полігонів, але кеш недоступний: '+err.message;return;}}info.textContent='Додано '+count+' полігонів. Унікальних Visicom: '+visicomPolygonMap.size+'.'+(envelope?' Зашифрований файл збережено в браузері.':'');return;}const entries=Array.isArray(json)?json:json.matches;if(!Array.isArray(entries))throw Error('Потрібен масив [{osmId,candidates:[{street,name,dist_meters}]}]');const next=new Map(),failed=new Set();for(const entry of entries){const id=String(entry.osmId??entry.osm_id??'');if(!/^\d+$/.test(id)||!Array.isArray(entry.candidates))throw Error('Некоректний osmId або candidates');if(entry.status==='failed')failed.add(id);next.set(id,entry.candidates.slice(0,20).filter(c=>c&&typeof c==='object').map(c=>({street:String(c.street??'').slice(0,120),name:String(c.name??c.number??'').slice(0,40),dist_meters:Number(c.dist_meters)})));}comparisonData=next;comparisonFailed=failed;refreshVisicomLegend();scheduleRender();info.textContent='Завантажено локально '+next.size+' наборів кандидатів. Дані не публікуються.';if(selectedBuilding!=null){const selected=buildingData?.features.find(f=>String(f.properties.id)===String(selectedBuilding));if(selected)drawCandidates(selected.properties)}}catch(error){info.textContent='Помилка JSON: '+error.message;}e.target.value='';});document.getElementById('closeInspect').onclick=()=>{selectedBuilding=null;inspectCard.hidden=true;scheduleRender()};document.getElementById('copyInspect').onclick=()=>{if(selectedCoords&&navigator.clipboard?.writeText)navigator.clipboard.writeText(selectedCoords.join(', '))};inspectToggle.addEventListener('change',()=>{if(inspectToggle.checked){document.getElementById('showBuildings').checked=true;if(map.getZoom()<16)map.setZoom(16)}else{selectedBuilding=null;inspectCard.hidden=true}scheduleRender()});function inspectFeature(f,l){selectedBuilding=f.properties.id;const p=f.properties;const center=l.getBounds().getCenter();selectedCoords=[center.lat.toFixed(6),center.lng.toFixed(6)];inspectInfo.textContent='OSM way '+p.id+' · '+(p.building||'building')+' · адреса: '+([p.street,p.housenumber].filter(Boolean).join(', ')||'немає')+' · центр: '+selectedCoords.join(', ')+(pointMatching?.get(p.id)?.length?' · адресних точок: '+pointMatching.get(p.id).length:'');inspectCard.hidden=false;drawCandidates(p);l.bringToFront();}
 function offsetCoords(latlngs,offset){let points=latlngs.map(p=>map.latLngToLayerPoint(p));return points.map((p,i)=>{let prev=points[Math.max(0,i-1)],next=points[Math.min(points.length-1,i+1)];let dx=next.x-prev.x,dy=next.y-prev.y,len=Math.hypot(dx,dy)||1;return map.layerPointToLatLng(L.point(p.x-dy/len*offset,p.y+dx/len*offset))})}
 function color(id,side){const c=['#ffcc20','#3366bf','#a13d43'];let n=0;for(const ch of String(id))n=(n*33+ch.charCodeAt(0))>>>0;return c[(n+(side==='R'?1:0))%3]}
-const streetLabelsGroup=L.layerGroup().addTo(map);
+// Road names are an SVG textPath drawn ON the OSM road centreline.
+// The SVG lives in Leaflet's overlayPane so it pans with the map without a plugin.
+const streetLabelNS='http://www.w3.org/2000/svg';
+const streetLabelSVG=document.createElementNS(streetLabelNS,'svg');
+streetLabelSVG.setAttribute('class','street-label-overlay');
+streetLabelSVG.setAttribute('aria-hidden','true');
+map.getPanes().overlayPane.appendChild(streetLabelSVG);
+const streetLabelMeasure=document.createElement('canvas').getContext('2d');
+streetLabelMeasure.font='11px system-ui, sans-serif';
+function clipRoadToViewport(a,b,w,h){
+ // Liang–Barsky clipping in screen pixels; keep labels away from viewport edges.
+ let t0=0,t1=1,dx=b.x-a.x,dy=b.y-a.y;
+ for(const [p,q] of [[-dx,a.x-18],[dx,w-18-a.x],[-dy,a.y-18],[dy,h-18-a.y]]){
+  if(Math.abs(p)<1e-9){if(q<0)return null;continue;}
+  const t=q/p;
+  if(p<0)t0=Math.max(t0,t);else t1=Math.min(t1,t);
+  if(t0>t1)return null;
+ }
+ return [L.point(a.x+t0*dx,a.y+t0*dy),L.point(a.x+t1*dx,a.y+t1*dy)];
+}
+function visibleRoadRuns(coords,w,h){
+ const runs=[];let current=[];
+ function finish(){if(current.length>1)runs.push(current);current=[];}
+ for(let i=1;i<coords.length;i++){
+  const a=map.latLngToContainerPoint([coords[i-1][1],coords[i-1][0]]),
+        b=map.latLngToContainerPoint([coords[i][1],coords[i][0]]);
+  const clipped=clipRoadToViewport(a,b,w,h);
+  if(!clipped){finish();continue;}
+  const [start,end]=clipped;
+  if(start.distanceTo(end)<.1)continue;
+  if(current.length&&current[current.length-1].distanceTo(start)>1)finish();
+  if(!current.length)current.push(start);
+  current.push(end);
+ }
+ finish();
+ return runs;
+}
+function roadLabelPosition(points){
+ let length=0;
+ for(let i=1;i<points.length;i++)length+=points[i-1].distanceTo(points[i]);
+ if(!length)return null;
+ let travelled=0;
+ for(let i=1;i<points.length;i++){
+  const seg=points[i-1].distanceTo(points[i]);
+  if(travelled+seg>=length/2){
+   const t=(length/2-travelled)/seg;
+   const mid=points[i-1].add(points[i].subtract(points[i-1]).multiplyBy(t));
+   const start=points[Math.max(0,i-1)],end=points[i];
+   return {mid,angle:Math.atan2(end.y-start.y,end.x-start.x),length};
+  }
+  travelled+=seg;
+ }
+ return null;
+}
+function roadLabelRect(position,width){
+ // Conservative oriented bounding box for collision detection.
+ const {mid,angle}=position,cos=Math.cos(angle),sin=Math.sin(angle);
+ return {center:mid,axis:[{x:cos,y:sin},{x:-sin,y:cos}],half:[width/2+10,11]};
+}
+function roadLabelsOverlap(a,b){
+ for(const axis of [...a.axis,...b.axis]){
+  const delta=Math.abs((a.center.x-b.center.x)*axis.x+(a.center.y-b.center.y)*axis.y);
+  const extent=rect=>rect.half[0]*Math.abs(rect.axis[0].x*axis.x+rect.axis[0].y*axis.y)+rect.half[1]*Math.abs(rect.axis[1].x*axis.x+rect.axis[1].y*axis.y);
+  if(delta>extent(a)+extent(b))return false;
+ }
+ return true;
+}
 function renderStreetLabels(){
- streetLabelsGroup.clearLayers();
+ streetLabelSVG.replaceChildren();
  if(baseMapSelect.value!=='local'||!document.getElementById('streetLabels').checked||map.getZoom()<15||!features.length)return;
+ const sz=map.getSize(),w=sz.x,h=sz.y;
+ streetLabelSVG.setAttribute('width',w);
+ streetLabelSVG.setAttribute('height',h);
+ streetLabelSVG.setAttribute('viewBox','0 0 '+w+' '+h);
+ L.DomUtil.setPosition(streetLabelSVG,map.containerPointToLayerPoint(L.point(0,0)));
  const byName=new Map();
  for(const f of features){
   const name=String(f.properties?.name||'').trim();
-  if(!name||name==='Без назви'||f.geometry?.type!=='LineString')continue;
-  const coords=f.geometry.coordinates;
-  if(coords.length<2)continue;
-  let length=0;
-  for(let i=1;i<coords.length;i++)length+=L.latLng(coords[i-1][1],coords[i-1][0]).distanceTo(L.latLng(coords[i][1],coords[i][0]));
-  if(length<20)continue;
-  const old=byName.get(name);
-  if(!old||length>old.length)byName.set(name,{coords,length,name});
- }
- const occupied=[],sz=map.getSize(),bounds=map.getBounds();
- let count=0;
- for(const entry of [...byName.values()].sort((a,b)=>b.length-a.length)){
-  const coords=entry.coords,full=entry.length;
-  let distance=0,position=null;
-  for(let i=1;i<coords.length;i++){
-   const a=L.latLng(coords[i-1][1],coords[i-1][0]),b=L.latLng(coords[i][1],coords[i][0]);
-   const seg=a.distanceTo(b);
-   if(distance+seg>=full/2){
-    const t=seg?(full/2-distance)/seg:0;
-    position=L.latLng(a.lat+(b.lat-a.lat)*t,a.lng+(b.lng-a.lng)*t);
-    break;
-   }
-   distance+=seg;
+  if(!name||name==='Без назви'||f.geometry?.type!=='LineString'||f.geometry.coordinates.length<2)continue;
+  const labelWidth=streetLabelMeasure.measureText(name).width;
+  for(const raw of visibleRoadRuns(f.geometry.coordinates,w,h)){
+   let points=raw;
+   const pos=roadLabelPosition(points);
+   if(!pos||pos.length<labelWidth+25)continue;
+   // SVG textPath should read from left to right (bottom to top for vertical roads).
+   const first=points[0],last=points[points.length-1];
+   if(first.x>last.x||Math.abs(first.x-last.x)<1&&first.y<last.y)points=[...points].reverse();
+   const oriented=roadLabelPosition(points);
+   if(!oriented)continue;
+   const candidate={name,points,pos:oriented,labelWidth};
+   const list=byName.get(name)||[];
+   list.push(candidate);
+   byName.set(name,list);
   }
-  if(!position||!bounds.contains(position))continue;
-  const p=map.latLngToContainerPoint(position);
-  const label=entry.name.length>34?entry.name.slice(0,32)+'…':entry.name;
-  const w=Math.min(250,Math.max(65,label.length*6.3+12)),h=20;
-  const box={x:p.x-w/2,y:p.y-h/2,x2:p.x+w/2,y2:p.y+h/2};
-  if(box.x<8||box.y<8||box.x2>sz.x-8||box.y2>sz.y-8)continue;
-  if(occupied.some(other=>!(box.x2+12<other.x||box.x-12>other.x2||box.y2+9<other.y||box.y-9>other.y2)))continue;
-  occupied.push(box);
-  const escaped=label.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const icon=L.divIcon({className:'',html:'<div class="street-name-label">'+escaped+'</div>',iconSize:[w,h],iconAnchor:[w/2,h/2]});
-  L.marker(position,{icon,interactive:false,keyboard:false}).addTo(streetLabelsGroup);
-  if(++count>=65)break;
+ }
+ const candidates=[...byName.values()].flatMap(entries=>entries.sort((a,b)=>b.pos.length-a.pos.length).slice(0,2));
+ candidates.sort((a,b)=>b.pos.length-a.pos.length);
+ const occupied=[],used=new Set(),defs=document.createElementNS(streetLabelNS,'defs');
+ streetLabelSVG.appendChild(defs);
+ let count=0;
+ for(const entry of candidates){
+  if(used.has(entry.name))continue;
+  const rect=roadLabelRect(entry.pos,entry.labelWidth);
+  if(occupied.some(other=>roadLabelsOverlap(rect,other)))continue;
+  const id='street-label-path-'+count;
+  const path=document.createElementNS(streetLabelNS,'path');
+  path.setAttribute('id',id);
+  path.setAttribute('d',entry.points.map((p,i)=>(i?'L':'M')+p.x.toFixed(1)+' '+p.y.toFixed(1)).join(' '));
+  defs.appendChild(path);
+  const text=document.createElementNS(streetLabelNS,'text');
+  text.setAttribute('class','street-label-text');
+  text.setAttribute('text-anchor','middle');
+  text.setAttribute('dy','-3');
+  const tp=document.createElementNS(streetLabelNS,'textPath');
+  tp.setAttribute('href','#'+id);
+  tp.setAttribute('startOffset','50%');
+  tp.textContent=entry.name;
+  text.appendChild(tp);
+  streetLabelSVG.appendChild(text);
+  occupied.push(rect);used.add(entry.name);
+  if(++count>=80)break;
  }
 }
-map.on('moveend zoomend',renderStreetLabels);
+map.on('moveend zoomend resize',renderStreetLabels);
 document.getElementById('streetLabels').addEventListener('change',renderStreetLabels);
 function render(){group.clearLayers();let width=Number(inputs[0].value),offset=Number(inputs[1].value);document.getElementById('widthOut').textContent=width;document.getElementById('offsetOut').textContent=offset;
 for(const feature of features){const line=feature.geometry.coordinates.map(p=>L.latLng(p[1],p[0]));if(line.length<2)continue;let name=feature.properties.name||'Без назви',id=feature.properties.id;
