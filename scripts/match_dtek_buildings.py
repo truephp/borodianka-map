@@ -201,6 +201,7 @@ def main(argv=None):
     roads = json.loads(Path(args.roads).read_text(encoding="utf-8"))
     directory = json.loads(Path(args.directory).read_text(encoding="utf-8"))
     result = match_houses(raw["responses"], buildings, aliases, roads=roads, directory=directory)
+    result["sourceFetchedAt"] = raw.get("fetchedAt")
     result["buildingSources"] = dict(Counter(b["source"] for b in buildings))
     # Aggregate-only diagnostics: never expose decrypted Visicom addresses.
     source_names = {b["streetKey"] for b in buildings}
