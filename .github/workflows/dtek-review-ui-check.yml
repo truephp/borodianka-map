@@ -25,7 +25,7 @@ jobs:
           from pathlib import Path
           import re
           html = Path("index.html").read_text(encoding="utf-8")
-          script = re.findall(r"<script(?:\s[^>]*)?>([\s\S]*?)</script>", html)
+          script = re.findall(r"<script>([\s\S]*?)</script>", html)
           assert len(script) == 1, f"Expected one inline script, found {len(script)}"
           Path("/tmp/map-dtek-review.js").write_text(script[0], encoding="utf-8")
           for item in ("dtekReviewSection","dtekReviewFile","dtekReviewEnable",
