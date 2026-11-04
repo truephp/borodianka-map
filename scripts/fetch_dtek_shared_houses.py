@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""One-session, 14-request DTEK KREM house-directory diagnostic.
+"""One-session DTEK KREM house-directory diagnostic (shared or complete directory).
 
-Reads the two user-supplied city keys and seven exact shared street strings.
+Reads the two user-supplied city keys and optionally all listed street strings.
 Uses same-origin POST /ua/ajax with DTEK's standard getHomeNum method and the
 current page's cookies/CSRF. No credential bypass, retries, or proxy rotation.
 Failures are explicit records, not silently empty house-number lists.
@@ -21,10 +21,12 @@ BASE_URL = "https://www.dtek-krem.com.ua"
 PAGE_URL = BASE_URL + "/ua/shutdowns"
 
 
-async def main_async(directory, output, update_fact, delay_seconds):
+async def main_async(directory, output, update_fact, delay_seconds, all_streets=False):
     streets = shared_streets(directory)
+    pairs = ([(city, street) for city in CITIES for street in directory['streets'][city] if street != 'Без вулиці']
+             if all_streets else [(city, street) for street in streets for city in CITIES])
     result = {"source": BASE_URL, "fetchedAt": datetime.now(timezone.utc).isoformat(),
-              "cities": list(CITIES), "streetNames": streets, "responses": []}
+              "cities": list(CITIES), "streetNames": streets, "scope": "all" if all_streets else "shared", "responses": []}
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True)
         try:
@@ -48,9 +50,8 @@ async def main_async(directory, output, update_fact, delay_seconds):
                 raise RuntimeError("Missing updateFact: provide current DTEK value using --update-fact")
             if not metadata["csrfToken"]:
                 raise RuntimeError("DTEK did not provide a csrf-token meta tag; cannot POST safely")
-            print("DTEK page provided CSRF token; using page session for 14 queries", file=sys.stderr)
-            for street in streets:
-                for city in CITIES:
+            print(f"DTEK CSRF present; requesting {len(pairs)} city/street pairs", file=sys.stderr)
+            for city, street in pairs:
                     try:
                         response = await page.evaluate("""async ({city, street, fact, csrfToken, csrfName}) => {
                             const body = new URLSearchParams();
@@ -108,11 +109,12 @@ def main():
     parser.add_argument("--output", required=True)
     parser.add_argument("--update-fact", default="", help="Actual DTEK updateFact from page, when not embedded")
     parser.add_argument("--delay-seconds", type=float, default=1.3)
+    parser.add_argument("--all-streets", action="store_true", help="Query both complete street directories (except Без вулиці)")
     args = parser.parse_args()
     if args.delay_seconds < 1:
         parser.error("--delay-seconds must be at least 1")
     directory = json.loads(Path(args.directory).read_text(encoding="utf-8"))
-    code = asyncio.run(main_async(directory, args.output, args.update_fact, args.delay_seconds))
+    code = asyncio.run(main_async(directory, args.output, args.update_fact, args.delay_seconds, args.all_streets))
     raise SystemExit(code)
 
 
