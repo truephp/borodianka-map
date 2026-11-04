@@ -170,3 +170,13 @@ Workflow **Build Unified Visicom + OSM Buildings** (`.github/workflows/visicom-m
 ### Архів вихідного Visicom GeoJSON у R2
 
 Одноразовий bootstrap зроблено через тимчасовий зашифрований `visicom-buildings.enc.json` у GitHub. Workflow `Archive Encrypted Visicom Export to R2` перевіряє контейнер, завантажує у `s3://boromap/borodianka/source/visicom-buildings.enc.json`, завантажує його назад і звіряє байти. Лише після успішної перевірки GitHub Actions видаляє тимчасовий файл із поточної гілки. **Видалення комітом не стирає Git-історію** — там залишається тільки зашифрований контейнер. Дані R2 читаються надалі через S3 API із GitHub Actions secrets.
+
+### Автоматичне завантаження єдиних будівель із Cloudflare R2
+
+Workflow `Build Unified Visicom + OSM Buildings` після шифрування **без ZIP** записує `borodianka/data/borodianka-buildings.enc.json` у R2 bucket (`R2_BUCKET`), звіряє скачану копію побайтово та додатково публікує GitHub Actions artifact для відлагодження. Файл залишається **зашифрованим**, використовується HTTP `Content-Type: application/json`, `Cache-Control: public, max-age=60, must-revalidate`. При зміні workflow, скрипту об’єднання або OSM `data/buildings.geojson` публікація виконується автоматично; ручний `workflow_dispatch` підтримується.
+
+У карті є поле **«URL об'єднаних будівель у R2»**. Якщо воно порожнє, URL автоматично виводиться з поля R2-підкладки `https://<домен>/borodianka/<версія>` → `https://<домен>/borodianka/data/borodianka-buildings.enc.json`. Для автоматичного завантаження повинен бути налаштований хоча б один із цих URL. На старті браузер отримує зашифрований файл напряму з R2 та розшифровує в пам'яті. Полігони зашифровано зберігаються в IndexedDB для fallback без URL.
+
+Пароль вводиться користувачем; **після успішного розшифрування** він зберігається в `borodianka_visicom_password` cookie на **86400 секунд**, із `Secure` (для HTTPS), `SameSite=Strict` та `Path=/`. Cookie **доступна JavaScript і містить пароль у відкритому вигляді**: це свідомий компроміс для прототипу, а не захищене сховище ключів. Не користуйтеся такою опцією на спільних або недовірених комп'ютерах. Cookie не оновлюється автоматично під час кожного відкриття карти; після завершення 24 годин пароль доведеться ввести повторно.
+
+**CORS:** якщо карта та R2 використовують різні домени, у Cloudflare Dashboard → R2 → bucket → Settings → CORS policy потрібен дозвіл для `https://truephp.lampass.top` з методами `GET`, `HEAD` (відповідні заголовки за потреби). Інакше браузер заблокує читання JSON, навіть коли тайли R2 працюють: Leaflet завантажує растрові тайли як зображення, а GeoJSON отримується через JavaScript `fetch`.
