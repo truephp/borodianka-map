@@ -19,6 +19,13 @@ from shapely.geometry import shape
 from shapely.strtree import STRtree
 
 ITERATIONS = 210000
+OVERLAP_BINS = ("0-25%", "25-50%", "50-75%", "75-100%")
+
+
+def overlap_bin(value):
+    # Ranges are [0, .25), [.25, .50), [.50, .75), [.75, 1].
+    return OVERLAP_BINS[min(int(value * 4), 3)]
+
 
 
 def key_for(password, salt, iterations):
@@ -50,7 +57,7 @@ def usable_feature(f):
 
 
 def create_merged(visicom_collection, osm_collection, boundary_collection,
-                  iou_threshold=0.35, overlap_threshold=0.80):
+                  iou_threshold=0.35, overlap_threshold=0.50):
     """Exclude OSM where ANY Visicom contour crosses configured overlap thresholds."""
     if not 0 < iou_threshold <= 1 or not 0 < overlap_threshold <= 1:
         raise ValueError("Overlap thresholds must be in (0,1]")
@@ -86,6 +93,14 @@ def create_merged(visicom_collection, osm_collection, boundary_collection,
     tree = STRtree(polygons) if polygons else None
     supplemental = []
     skipped = Counter()
+    overlap_histogram = Counter()
+    overlap_excluded = Counter()
+    overlap_supplemental = Counter()
+    # Distinguish any geometric overlap from multiple candidates qualifying for removal.
+    ambiguous_osm = 0
+    ambiguous_osm_qualifying = 0
+    visicom_overlap_counts = Counter()
+    visicom_qualifying_counts = Counter()
     for f in osm_collection["features"]:
         if not usable_feature(f):
             continue
@@ -100,10 +115,11 @@ def create_merged(visicom_collection, osm_collection, boundary_collection,
             skipped["outside"] += 1
             continue
         best_iou, best_overlap, best_visicom = 0.0, 0.0, None
-        matched = False
+        overlaps, qualifying = 0, 0
         if tree:
             for idx in tree.query(g):
-                other = polygons[int(idx)]
+                vi = int(idx)
+                other = polygons[vi]
                 if not g.intersects(other):
                     continue
                 try:
@@ -113,18 +129,29 @@ def create_merged(visicom_collection, osm_collection, boundary_collection,
                     continue
                 if intersection <= 0:
                     continue
+                overlaps += 1
+                visicom_overlap_counts[vi] += 1
                 iou = intersection / (g.area + other.area - intersection)
                 overlap = intersection / min(g.area, other.area)
-                if iou > best_iou or overlap > best_overlap:
-                    best_iou = max(best_iou, iou)
-                    best_overlap = max(best_overlap, overlap)
-                    best_visicom = visicom[int(idx)]["properties"]["visicomId"]
+                # Keep IoU and overlap of the SAME best partner (not a mix).
+                if (overlap, iou) > (best_overlap, best_iou):
+                    best_iou, best_overlap = iou, overlap
+                    best_visicom = visicom[vi]["properties"]["visicomId"]
                 if iou >= iou_threshold or overlap >= overlap_threshold:
-                    skipped["overlap"] += 1
-                    matched = True
-                    break
-            if matched:
-                continue
+                    qualifying += 1
+                    visicom_qualifying_counts[vi] += 1
+
+        if overlaps > 1:
+            ambiguous_osm += 1
+        if qualifying > 1:
+            ambiguous_osm_qualifying += 1
+        band = overlap_bin(best_overlap)
+        overlap_histogram[band] += 1
+        if qualifying:
+            skipped["overlap"] += 1
+            overlap_excluded[band] += 1
+            continue
+        overlap_supplemental[band] += 1
         supplemental.append({"type": "Feature", "geometry": f["geometry"],
                              "properties": {"source": "osm", "sourceId": oid, "osmId": oid, "id": oid,
                                             "street": p.get("street") or None,
@@ -135,6 +162,19 @@ def create_merged(visicom_collection, osm_collection, boundary_collection,
                                             "bestOverlap": round(best_overlap, 5),
                                             "candidateVisicomId": best_visicom}})
     features = visicom + supplemental
+    statistics = {
+        "definition": "Best overlap per in-boundary OSM building: intersection / min(OSM area, Visicom area)",
+        "ranges": list(OVERLAP_BINS),
+        "histogram": {band: overlap_histogram[band] for band in OVERLAP_BINS},
+        "excluded": {band: overlap_excluded[band] for band in OVERLAP_BINS},
+        "supplemental": {band: overlap_supplemental[band] for band in OVERLAP_BINS},
+        "noOverlap": sum(1 for f in supplemental if f["properties"]["matchStatus"] == "no_overlap"),
+        "ambiguousOSM": ambiguous_osm,
+        "ambiguousOSMQualifying": ambiguous_osm_qualifying,
+        "ambiguousVisicom": sum(1 for count in visicom_overlap_counts.values() if count > 1),
+        "ambiguousVisicomQualifying": sum(1 for count in visicom_qualifying_counts.values() if count > 1),
+    }
+
     return {"type": "FeatureCollection", "features": features,
             "metadata": {"mergedBuildings": True, "scope": "Borodianka, Bucha district, Kyiv oblast",
                          "visicom": len(visicom), "osmSupplemental": len(supplemental),
@@ -143,6 +183,7 @@ def create_merged(visicom_collection, osm_collection, boundary_collection,
                          "geometryErrors": skipped["geometry_errors"],
                          "iouThreshold": iou_threshold,
                          "overlapThreshold": overlap_threshold,
+                         "overlapStatistics": statistics,
                          "publicDistributionApproved": False}}
 
 
@@ -153,7 +194,7 @@ def main():
     ap.add_argument("--boundary", default="data/boundary.geojson")
     ap.add_argument("--output", required=True)
     ap.add_argument("--iou", type=float, default=0.35)
-    ap.add_argument("--overlap", type=float, default=0.8)
+    ap.add_argument("--overlap", type=float, default=0.5)
     args = ap.parse_args()
     password = os.environ.get("VISICOM_EXPORT_PASSWORD")
     if not password:
@@ -166,6 +207,26 @@ def main():
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(json.dumps(encrypt(merged, password), separators=(",", ":")) + "\n")
     print("MERGED_BUILDINGS " + json.dumps({**merged["metadata"], "total": len(merged["features"])}, ensure_ascii=False))
+    stats = merged["metadata"]["overlapStatistics"]
+    print("\\nOVERLAP_DISTRIBUTION (best overlap of each OSM building)")
+    print("Range      Total   Excluded   Added")
+    for band in stats["ranges"]:
+        print(f'{band:<10} {stats["histogram"][band]:>5} {stats["excluded"][band]:>10} {stats["supplemental"][band]:>7}')
+    print(f'No overlap: {stats["noOverlap"]}')
+    print(f'Ambiguous OSM (>1 intersecting Visicom): {stats["ambiguousOSM"]}')
+    print(f'Ambiguous OSM (>1 qualifying Visicom): {stats["ambiguousOSMQualifying"]}')
+    print(f'Ambiguous Visicom (>1 intersecting OSM): {stats["ambiguousVisicom"]}')
+    print(f'Ambiguous Visicom (>1 qualifying OSM): {stats["ambiguousVisicomQualifying"]}')
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary_path:
+        with open(summary_path, "a", encoding="utf-8") as summary:
+            summary.write("\\n## Visicom + OSM: overlap statistics\\n\\n")
+            summary.write(f'IoU threshold: {args.iou:.2f}; overlap threshold: {args.overlap:.2f}\\n\\n')
+            summary.write("| Best overlap | All OSM | Excluded | Added |\\n|---|---:|---:|---:|\\n")
+            for band in stats["ranges"]:
+                summary.write(f'| {band} | {stats["histogram"][band]} | {stats["excluded"][band]} | {stats["supplemental"][band]} |\\n')
+            summary.write(f'\\nNo overlap: {stats["noOverlap"]}. Ambiguous OSM: {stats["ambiguousOSM"]} (qualifying: {stats["ambiguousOSMQualifying"]}). Ambiguous Visicom: {stats["ambiguousVisicom"]} (qualifying: {stats["ambiguousVisicomQualifying"]}).\\n')
+
 
 
 if __name__ == "__main__":
