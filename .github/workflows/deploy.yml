@@ -9,6 +9,7 @@ on:
     branches: [main]
 permissions:
   contents: read
+  actions: read
   pages: write
   id-token: write
 concurrency:
@@ -25,6 +26,26 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
+      - name: Include encrypted DTEK matching report on the same site
+        uses: actions/download-artifact@v4
+        with:
+          name: dtek-building-address-audit
+          run-id: 41910246449
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/dtek-review
+      - name: Install DTEK report without exposing decrypted Visicom records
+        run: |
+          set -euo pipefail
+          test -s "$RUNNER_TEMP/dtek-review/dtek-visicom-address-matches.enc.json"
+          cp "$RUNNER_TEMP/dtek-review/dtek-visicom-address-matches.enc.json" data/dtek-all-unified-matches.enc.json
+          python - <<'PY'
+          import json
+          with open("data/dtek-all-unified-matches.enc.json", encoding="utf-8") as f:
+              envelope = json.load(f)
+          assert envelope["version"] == 1 and envelope["kdf"] == "PBKDF2-SHA256"
+          assert all(envelope.get(k) for k in ("salt", "iv", "data"))
+          print("Encrypted DTEK review report included in GitHub Pages artifact")
+          PY
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

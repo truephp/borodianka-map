@@ -1,0 +1,59 @@
+name: DTEK KREM — Borodianka street matching
+
+on:
+  push:
+    branches: [feature/dtek-address-matching]
+    paths:
+      - '.github/workflows/dtek-street-pilot.yml'
+      - 'scripts/match_dtek_streets.py'
+      - 'scripts/test_match_dtek_streets.py'
+      - 'data/dtek-borodianka-streets.json'
+      - 'data/roads.geojson'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare-streets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test street matching rules
+        run: python -m unittest scripts.test_match_dtek_streets -v
+      - name: Compare captured DTEK KREM names against OSM
+        run: |
+          python scripts/match_dtek_streets.py \
+            --dtek data/dtek-borodianka-streets.json \
+            --city "с-ще Бородянка" \
+            --osm data/roads.geojson \
+            --output "$RUNNER_TEMP/dtek-borodianka-street-matches.json"
+          python - "$RUNNER_TEMP/dtek-borodianka-street-matches.json" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json, sys
+          report = json.load(open(sys.argv[1], encoding="utf-8"))
+          print("## DTEK KREM → OSM: Бородянка")
+          print(f"ДТЕК: {report['totalDtekStreets']} назв; OSM: {report['totalOsmStreetNames']} назв")
+          print("| Результат | Кількість |")
+          print("|---|---:|")
+          for key, value in report["counts"].items():
+              print(f"| {key} | {value} |")
+          print("\n### Непідтверджені відповідності")
+          for row in report["streets"]:
+              if row["status"] not in ("exact", "alias"):
+                  candidates = ", ".join(
+                      "/".join(x["osm"]) + " (" + str(x["score"]) + ")"
+                      for x in row.get("candidates", [])[:3]
+                  )
+                  print(f"- {row['dtek']}: {candidates or 'немає кандидатів'}")
+          PY
+      - name: Upload matching report
+        uses: actions/upload-artifact@v4
+        with:
+          name: dtek-borodianka-street-matches
+          path: ${{ runner.temp }}/dtek-borodianka-street-matches.json
+          retention-days: 7
+          if-no-files-found: error

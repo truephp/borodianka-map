@@ -1,0 +1,86 @@
+name: DTEK KREM — compare shared Borodianka house numbers
+
+on:
+  push:
+    branches: [feature/dtek-address-matching]
+    paths:
+      - '.github/workflows/dtek-shared-houses.yml'
+      - 'scripts/fetch_dtek_shared_houses.py'
+      - 'scripts/compare_dtek_shared_houses.py'
+      - 'scripts/test_compare_dtek_shared_houses.py'
+  workflow_dispatch:
+    inputs:
+      update_fact:
+        description: 'Current updateFact from DTEK if site does not expose it'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  compare-houses:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify offline house matching logic
+        run: python -m unittest scripts.test_compare_dtek_shared_houses -v
+      - name: Install Chromium
+        run: |
+          python -m pip install --disable-pip-version-check 'playwright>=1.50,<2'
+          python -m playwright install --with-deps chromium
+      - name: Get the 14 house lists for the 7 shared street names
+        id: fetch
+        continue-on-error: true
+        env:
+          USER_UPDATE_FACT: ${{ inputs.update_fact }}
+        run: |
+          python scripts/fetch_dtek_shared_houses.py \
+            --update-fact "${USER_UPDATE_FACT:-04.11.2026 20:36}" \
+            --output "$RUNNER_TEMP/dtek-shared-houses-raw.json"
+      - name: Compare shared houses and write summary
+        if: always()
+        id: compare
+        continue-on-error: true
+        run: |
+          test -f "$RUNNER_TEMP/dtek-shared-houses-raw.json" || {
+            echo 'No house response file; the page session failed before any requests.' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          }
+          python scripts/compare_dtek_shared_houses.py \
+            --responses "$RUNNER_TEMP/dtek-shared-houses-raw.json" \
+            --output "$RUNNER_TEMP/dtek-shared-houses-report.json" || true
+          python - "$RUNNER_TEMP/dtek-shared-houses-report.json" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json,sys
+          r=json.load(open(sys.argv[1],encoding="utf-8"))
+          print("## ДТЕК: порівняння 7 спільних вулиць")
+          print(f"Успішно порівняно: {r['compared']}; з помилками: {r['failed']}")
+          print("| Вулиця | с-ще | смт | Спільних | Лише с-ще | Лише смт |")
+          print("|---|---:|---:|---:|---:|---:|")
+          for row in r["streets"]:
+              if row["status"]=="compared":
+                  c=row["counts"]
+                  print(f"| {row['street']} | {c['first']} | {c['second']} | {c['shared']} | {c['onlyFirst']} | {c['onlySecond']} |")
+              else:
+                  print(f"| {row['street']} | error | error | — | — | — |")
+          print("\nPer-house lists and explicit error reasons are in the JSON report artifact.")
+          PY
+      - name: Upload house lists and report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dtek-borodianka-seven-streets
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/dtek-shared-houses-raw.json
+            ${{ runner.temp }}/dtek-shared-houses-report.json
+      - name: Fail when DTEK data could not be fully compared
+        if: always()
+        run: |
+          test "${{ steps.fetch.outcome }}" = success
+          test "${{ steps.compare.outcome }}" = success
