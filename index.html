@@ -449,23 +449,39 @@ document.getElementById('osmAddressImport').addEventListener('change',async even
   const data=JSON.parse(await file.text());
   if(data.schemaVersion!==1||data.source!=='borodianka-osm-building-address-overrides'||!Array.isArray(data.overrides))
    throw Error('Непідтримуваний формат');
-  const changes=[];
+  const changes=[],seen=new Set();
   for(const entry of data.overrides){
-   const feature=osmBuildingById(entry.osmId);
-   if(!feature||!Array.isArray(entry.addresses)||!entry.addresses.length)throw Error('Полігон або адреси відсутні');
+   const id=String(entry.osmId);
+   if(seen.has(id))throw Error('Повторний полігон у файлі');
+   seen.add(id);
+   const feature=osmBuildingById(id);
+   if(!feature||!Array.isArray(entry.addresses))throw Error('Полігон або адреси відсутні');
+   const original=osmOriginalPolygonAddress(feature);
    const points=new Map(osmAddressPointsInside(feature).map(p=>[String(p.properties.id),p.properties]));
+   // Older exports only contained point IDs. Their polygon address was
+   // implicitly excluded; retain that meaning when importing them.
+   const includeOriginal=entry.includeOriginal===true;
+   if(includeOriginal&&!original)throw Error('Початкова адреса полігона відсутня');
    const checked=[];
+   if(includeOriginal)checked.push({...original,fromPolygon:true,pointIds:[]});
    for(const address of entry.addresses){
-    if(!Array.isArray(address.pointIds)||!address.pointIds.length)throw Error('Не вказані адресні точки');
-    for(const id of address.pointIds){
-     const p=points.get(String(id));
-     if(!p||p.street!==address.street||p.housenumber!==address.housenumber)throw Error('Адресна точка не відповідає полігону');
-     checked.push({street:p.street,housenumber:p.housenumber,pointIds:[String(id)]});
+    if(!address||typeof address.street!=='string'||typeof address.housenumber!=='string')
+     throw Error('Некоректна адреса');
+    const ids=Array.isArray(address.pointIds)?address.pointIds:[];
+    if(!ids.length){
+     if(!includeOriginal||!original||address.street!==original.street||address.housenumber!==original.housenumber)
+      throw Error('Адреса без OSM node не збігається з початковою адресою полігона');
+    }
+    for(const pointId of ids){
+     const p=points.get(String(pointId));
+     if(!p||p.street!==address.street||p.housenumber!==address.housenumber)
+      throw Error('Адресна точка не відповідає полігону');
+     checked.push({street:p.street,housenumber:p.housenumber,pointIds:[String(pointId)]});
     }
    }
-   changes.push({feature,addresses:checked});
+   changes.push({feature,addresses:checked,includeOriginal});
   }
-  for(const change of changes)osmAddressApply(change.feature,change.addresses);
+  for(const change of changes)osmAddressApply(change.feature,change.addresses,change.includeOriginal);
   osmAddressRefreshSelected();scheduleRender();
   osmAddressEditStatus.textContent='Імпортовано '+changes.length+' адресних рішень.';
  }catch(error){osmAddressEditStatus.textContent='Імпорт не виконано: '+error.message;}
