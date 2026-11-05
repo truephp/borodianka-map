@@ -15,7 +15,7 @@ import re
 import sys
 import unicodedata
 
-from compare_dtek_shared_houses import extract_houses
+from compare_dtek_shared_houses import extract_houses, house_key
 from match_dtek_streets import normalize_street
 
 STREET_PREFIX = re.compile(r"^(вулиця|вул\.?|провулок|пров\.?)\s+", re.I)
@@ -41,17 +41,10 @@ def reversed_two_word_street(name):
     return " ".join(reversed(words)) if len(words) == 2 and words[0] != words[1] else None
 
 
-def house_key(value):
-    value = unicodedata.normalize("NFKC", str(value or "")).casefold()
-    return re.sub(r"\s+", "", value.replace("’", "'").replace("ʼ", "'"))
-
-
 def house_candidate_key(value):
-    # Candidate-only: never use this aggressive normalizer for confirmed links.
-    s = house_key(value).translate(str.maketrans({"а": "a", "в": "b", "с": "c", "е": "e",
-                                                   "н": "h", "к": "k", "м": "m", "о": "o",
-                                                   "р": "p", "т": "t", "х": "x"}))
-    return re.sub(r"[/\\\-.]", "", s)
+    # Do not erase numeric subdivisions: 23 and 2/3 must never be candidates.
+    # Canonical letter suffixes are already handled by house_key.
+    return house_key(value)
 
 
 def address_records(collection, source_override=None):
@@ -145,9 +138,13 @@ def match_houses(responses, building_records, aliases=None, roads=None, director
 
         available_kinds = kinds.get(street_name, set())
         ambiguous_kind = len(available_kinds) > 1
+        # DTEK may return several spellings of the same address in one API
+        # response (e.g. 230А and 230/А). Process the canonical address once.
+        variants = defaultdict(list)
+        for original in (entry["response"].get("data") or {}):
+            variants[house_key(original)].append(original)
         # A different explicit building type is a conflict, never a match.
-        for house in houses.values():
-            hkey = house_key(house)
+        for hkey, house in houses.items():
             same_name = name_idx.get((street_name, hkey), [])
             compatible = [b for b in same_name if b["kind"] is None or b["kind"] == street_type]
             if compatible:
@@ -209,16 +206,20 @@ def match_houses(responses, building_records, aliases=None, roads=None, director
             # The data dictionary keys are original house numbers; normalized
             # keys are only for matching, not for retrieving status payloads.
             house_fields = {}
+            source_variants = variants.get(hkey, [house])
+            dtek_fields = ("cek", "start_date", "end_date", "sub_type",
+                           "sub_type_reason", "type", "voluntarily")
             if isinstance(source_data, dict):
-                for original_number, payload in source_data.items():
-                    if house_key(original_number) == house_key(house) and isinstance(payload, dict):
-                        house_fields = {k: payload[k] for k in (
-                            "cek", "start_date", "end_date", "sub_type",
-                            "sub_type_reason", "type", "voluntarily"
-                        ) if k in payload}
-                        break
+                for original_number in source_variants:
+                    payload = source_data.get(original_number)
+                    if isinstance(payload, dict):
+                        for field in dtek_fields:
+                            if field in payload and (field not in house_fields or
+                                                     house_fields[field] in (None, "", [])):
+                                house_fields[field] = payload[field]
             out.append({"city": city, "street": street, "house": house, "status": status,
-                        "dtek": house_fields, "matchMethod": match_method,
+                        "dtek": house_fields, "houseVariants": source_variants,
+                        "matchMethod": match_method,
                         "links": [{"source": b["source"], "id": b["id"],
                                    "street": b["street"], "house": b["house"]} for b in matches]})
     return {"schemaVersion": 2, "counts": dict(counts), "records": out}
