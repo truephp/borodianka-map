@@ -331,8 +331,65 @@ visicomPasswordInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preven
 restoreVisicomCache();
 document.getElementById('visicomImport').addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file)return;const info=document.getElementById('visicomImportStatus');try{if(file.size>25e6)throw Error('Максимум 25 MB');let json=JSON.parse(await file.text());const envelope=json.version===1&&json.kdf==='PBKDF2-SHA256'?json:null;
 if(envelope){json=await decryptVisicomFile(envelope,visicomPasswordInput.value);rememberVisicomPassword(visicomPasswordInput.value);}else if(!Array.isArray(json))throw Error('Потрібен зашифрований JSON із GitHub Actions');
-if(json.type==='FeatureCollection'&&Array.isArray(json.features)){const count=applyVisicomFeatures(json);if(envelope){try{await cacheVisicomFile(envelope);}catch(err){info.textContent='Завантажено '+count+' полігонів, але кеш недоступний: '+err.message;return;}}info.textContent='Додано '+count+' полігонів. Унікальних Visicom: '+visicomPolygonMap.size+'.'+(envelope?' Зашифрований файл збережено в браузері.':'');return;}const entries=Array.isArray(json)?json:json.matches;if(!Array.isArray(entries))throw Error('Потрібен масив [{osmId,candidates:[{street,name,dist_meters}]}]');const next=new Map(),failed=new Set();for(const entry of entries){const id=String(entry.osmId??entry.osm_id??'');if(!/^\d+$/.test(id)||!Array.isArray(entry.candidates))throw Error('Некоректний osmId або candidates');if(entry.status==='failed')failed.add(id);next.set(id,entry.candidates.slice(0,20).filter(c=>c&&typeof c==='object').map(c=>({street:String(c.street??'').slice(0,120),name:String(c.name??c.number??'').slice(0,40),dist_meters:Number(c.dist_meters)})));}comparisonData=next;comparisonFailed=failed;refreshVisicomLegend();scheduleRender();info.textContent='Завантажено локально '+next.size+' наборів кандидатів. Дані не публікуються.';if(selectedBuilding!=null){const selected=buildingData?.features.find(f=>String(f.properties.id)===String(selectedBuilding));if(selected)drawCandidates(selected.properties)}}catch(error){info.textContent='Помилка JSON: '+error.message;}e.target.value='';});document.getElementById('closeInspect').onclick=()=>{osmGeomDiscardEditor();selectedBuilding=null;inspectCard.hidden=true;scheduleRender()};document.getElementById('copyInspect').onclick=()=>{if(selectedCoords&&navigator.clipboard?.writeText)navigator.clipboard.writeText(selectedCoords.join(', '))};inspectToggle.addEventListener('change',()=>{if(inspectToggle.checked){document.getElementById('showBuildings').checked=true;if(map.getZoom()<16)map.setZoom(16)}else{selectedBuilding=null;inspectCard.hidden=true}scheduleRender()});// Manual OSM address overrides belong to a polygon, not to OSM itself.
-const osmAddressOverrides=new Map(),osmOriginalAddresses=new Map();
+if(json.type==='FeatureCollection'&&Array.isArray(json.features)){const count=applyVisicomFeatures(json);if(envelope){try{await cacheVisicomFile(envelope);}catch(err){info.textContent='Завантажено '+count+' полігонів, але кеш недоступний: '+err.message;return;}}info.textContent='Додано '+count+' полігонів. Унікальних Visicom: '+visicomPolygonMap.size+'.'+(envelope?' Зашифрований файл збережено в браузері.':'');return;}const entries=Array.isArray(json)?json:json.matches;if(!Array.isArray(entries))throw Error('Потрібен масив [{osmId,candidates:[{street,name,dist_meters}]}]');const next=new Map(),failed=new Set();for(const entry of entries){const id=String(entry.osmId??entry.osm_id??'');if(!/^\d+$/.test(id)||!Array.isArray(entry.candidates))throw Error('Некоректний osmId або candidates');if(entry.status==='failed')failed.add(id);next.set(id,entry.candidates.slice(0,20).filter(c=>c&&typeof c==='object').map(c=>({street:String(c.street??'').slice(0,120),name:String(c.name??c.number??'').slice(0,40),dist_meters:Number(c.dist_meters)})));}comparisonData=next;comparisonFailed=failed;refreshVisicomLegend();scheduleRender();info.textContent='Завантажено локально '+next.size+' наборів кандидатів. Дані не публікуються.';if(selectedBuilding!=null){const selected=buildingData?.features.find(f=>String(f.properties.id)===String(selectedBuilding));if(selected)drawCandidates(selected.properties)}}catch(error){info.textContent='Помилка JSON: '+error.message;}e.target.value='';});document.getElementById('closeInspect').onclick=()=>{osmGeomDiscardEditor();selectedBuilding=null;inspectCard.hidden=true;scheduleRender()};document.getElementById('copyInspect').onclick=()=>{if(selectedCoords&&navigator.clipboard?.writeText)navigator.clipboard.writeText(selectedCoords.join(', '))};inspectToggle.addEventListener('change',()=>{if(inspectToggle.checked){document.getElementById('showBuildings').checked=true;if(map.getZoom()<16)map.setZoom(16)}else{selectedBuilding=null;inspectCard.hidden=true}scheduleRender()});// Immutable imported datasets + one patch store for every map layer.
+// Source keys prevent collisions between OSM way IDs and Visicom feature IDs.
+// No renderer may read raw source geometry after a feature has been patched.
+const featurePatches=new Map();
+const featureViewCache=new WeakMap();
+let featureRevision=0;
+function featureKey(source,id){return source+':'+String(id);}
+function featureIdentity(feature){
+ const p=feature?.properties||{};
+ const source=p.source==='visicom'?'visicom':'osm';
+ const id=source==='visicom'?(p.visicomId??p.sourceId??p.id):
+  (p.osmId??p.sourceId??p.id);
+ return id==null?null:featureKey(source,id);
+}
+function currentDataset(original){
+ if(!original?.features)return null;
+ const cached=featureViewCache.get(original);
+ if(cached?.revision===featureRevision)return cached.collection;
+ const features=original.features.map(feature=>{
+  const patch=featurePatches.get(featureIdentity(feature));
+  if(!patch)return feature;
+  return {...feature,
+   geometry:patch.geometry||feature.geometry,
+   properties:patch.properties?{...feature.properties,...patch.properties}:feature.properties};
+ });
+ const collection={...original,features};
+ const byKey=new Map(features.map(f=>[featureIdentity(f),f]));
+ featureViewCache.set(original,{revision:featureRevision,collection,byKey});
+ return collection;
+}
+function currentFeatureFrom(original,source,id){
+ if(!original?.features)return null;
+ currentDataset(original);
+ return featureViewCache.get(original).byKey.get(featureKey(source,id))||null;
+}
+function setFeaturePatch(source,id,changes){
+ const key=featureKey(source,id);
+ const previous=featurePatches.get(key)||{};
+ const next={...previous,...changes};
+ if(!next.geometry&&!next.properties)featurePatches.delete(key);
+ else featurePatches.set(key,next);
+ featureRevision++;
+}
+function clearFeaturePatch(source,id,field){
+ const key=featureKey(source,id),previous=featurePatches.get(key);
+ if(!previous)return;
+ const next={...previous};delete next[field];
+ if(Object.keys(next).length)featurePatches.set(key,next);
+ else featurePatches.delete(key);
+ featureRevision++;
+}
+function refreshEditedFeatureLayers(){
+ // All overlays take their features from the same patched data view.
+ calculateMatches();
+ dtekPresenceDraw();
+ dtekReviewDraw();
+ scheduleRender();
+}
+const osmAddressOverrides=new Map();
 const osmAddressChoices=document.getElementById('osmAddressChoices');
 const osmAddressEditStatus=document.getElementById('osmAddressEditStatus');
 function osmAddressText(entry){return [entry.street,entry.housenumber].filter(Boolean).join(', ');}
@@ -342,11 +399,11 @@ function osmAddressPointsInside(feature){
   containsPoint(point.geometry.coordinates,feature.geometry));
 }
 function osmBuildingById(id){
- return buildingData?.features.find(feature=>String(feature.properties?.id)===String(id))||null;
+ return currentFeatureFrom(buildingData,'osm',id);
 }
 function osmOriginalPolygonAddress(feature){
- const id=String(feature.properties.id),original=osmOriginalAddresses.get(id);
- const p=original||feature.properties;
+ const original=buildingData?.features.find(f=>String(f.properties?.id)===String(feature.properties.id));
+ const p=original?.properties||{};
  return p.street&&p.housenumber?{street:p.street,housenumber:p.housenumber}:null;
 }
 function osmPolygonAddresses(feature){
@@ -391,11 +448,7 @@ function osmAddressRefreshSelected(){
  osmAddressRenderEditor(feature);
 }
 function osmAddressApply(feature,addresses,includeOriginal){
- const id=String(feature.properties.id),p=feature.properties;
- if(!osmOriginalAddresses.has(id))osmOriginalAddresses.set(id,{
-  street:p.street??null,housenumber:p.housenumber??null,
-  addresses:Array.isArray(p.addresses)?p.addresses.map(a=>({...a})):null
- });
+ const id=String(feature.properties.id);
  const unique=new Map();
  for(const address of addresses){
   const key=JSON.stringify([address.street,address.housenumber]);
@@ -409,9 +462,11 @@ function osmAddressApply(feature,addresses,includeOriginal){
  }
  const normalized=[...unique.values()];
  for(const item of normalized)item.pointIds=[...new Set(item.pointIds)];
- if(normalized.length){p.street=normalized[0].street;p.housenumber=normalized[0].housenumber;}
- else{delete p.street;delete p.housenumber;}
- p.addresses=normalized;
+ const properties={
+  street:normalized[0]?.street??null,housenumber:normalized[0]?.housenumber??null,
+  addresses:normalized
+ };
+ setFeaturePatch('osm',id,{properties});
  osmAddressOverrides.set(id,{osmId:id,includeOriginal:!!includeOriginal,addresses:normalized});
 }
 // Geometry editing is strictly opt-in and limited to the selected OSM polygon.
@@ -561,19 +616,14 @@ document.getElementById('osmAddressApply').addEventListener('click',()=>{
   });
  }
  osmAddressApply(feature,addresses,includeOriginal);
- osmAddressRefreshSelected();scheduleRender();
+ osmAddressRefreshSelected();refreshEditedFeatureLayers();
 });
 document.getElementById('osmAddressReset').addEventListener('click',()=>{
  const feature=osmBuildingById(selectedBuilding);if(!feature)return;
- const id=String(feature.properties.id),original=osmOriginalAddresses.get(id);
- if(original){
-  if(original.street===null)delete feature.properties.street;else feature.properties.street=original.street;
-  if(original.housenumber===null)delete feature.properties.housenumber;else feature.properties.housenumber=original.housenumber;
-  if(original.addresses===null)delete feature.properties.addresses;
-  else feature.properties.addresses=original.addresses;
- }
- osmAddressOverrides.delete(id);osmOriginalAddresses.delete(id);
- osmAddressRefreshSelected();scheduleRender();
+ const id=String(feature.properties.id);
+ osmAddressOverrides.delete(id);
+ clearFeaturePatch('osm',id,'properties');
+ osmAddressRefreshSelected();refreshEditedFeatureLayers();
 });
 document.getElementById('osmAddressGeojsonExport').addEventListener('click',()=>{
  if(!buildingData?.features?.length){
@@ -582,7 +632,7 @@ document.getElementById('osmAddressGeojsonExport').addEventListener('click',()=>
  }
  // The editor modifies the local OSM FeatureCollection, not the remote OSM API.
  // Export the entire collection so every assigned address is retained.
- const blob=new Blob([JSON.stringify(buildingData)],{type:'application/geo+json'});
+ const blob=new Blob([JSON.stringify(currentDataset(buildingData))],{type:'application/geo+json'});
  const url=URL.createObjectURL(blob),link=document.createElement('a');
  link.href=url;link.download='borodianka-buildings-corrected.geojson';link.click();
  setTimeout(()=>URL.revokeObjectURL(url),1000);
@@ -637,7 +687,7 @@ document.getElementById('osmAddressImport').addEventListener('change',async even
    changes.push({feature,addresses:checked,includeOriginal});
   }
   for(const change of changes)osmAddressApply(change.feature,change.addresses,change.includeOriginal);
-  osmAddressRefreshSelected();scheduleRender();
+  osmAddressRefreshSelected();refreshEditedFeatureLayers();
   osmAddressEditStatus.textContent='Імпортовано '+changes.length+' адресних рішень.';
  }catch(error){osmAddressEditStatus.textContent='Імпорт не виконано: '+error.message;}
  event.target.value='';
