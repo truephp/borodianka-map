@@ -433,6 +433,19 @@ document.getElementById('osmAddressReset').addEventListener('click',()=>{
  osmAddressOverrides.delete(id);osmOriginalAddresses.delete(id);
  osmAddressRefreshSelected();scheduleRender();
 });
+document.getElementById('osmAddressGeojsonExport').addEventListener('click',()=>{
+ if(!buildingData?.features?.length){
+  osmAddressEditStatus.textContent='Спочатку завантаж дані будівель OSM.';
+  return;
+ }
+ // The editor modifies the local OSM FeatureCollection, not the remote OSM API.
+ // Export the entire collection so every assigned address is retained.
+ const blob=new Blob([JSON.stringify(buildingData)],{type:'application/geo+json'});
+ const url=URL.createObjectURL(blob),link=document.createElement('a');
+ link.href=url;link.download='borodianka-buildings-corrected.geojson';link.click();
+ setTimeout(()=>URL.revokeObjectURL(url),1000);
+ osmAddressEditStatus.textContent='Експортовано GeoJSON із поточними ручними змінами. Для публікації потрібно оновити data/buildings.geojson у репозиторії.';
+});
 document.getElementById('osmAddressExport').addEventListener('click',()=>{
  const data={schemaVersion:1,source:'borodianka-osm-building-address-overrides',
   createdAt:new Date().toISOString(),overrides:[...osmAddressOverrides.values()]};
