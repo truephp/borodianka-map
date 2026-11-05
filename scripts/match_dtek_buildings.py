@@ -101,6 +101,15 @@ def known_street_types(roads=None, directory=None, buildings=()):
     return names
 
 
+def resolved_address_status(matches):
+    """Multiple polygons are ambiguous only when sources differ.
+
+    Several Visicom polygons (or several OSM polygons) may legitimately share
+    one address. A Visicom/OSM combination needs manual source reconciliation.
+    """
+    return "multiple" if len({b["source"] for b in matches}) > 1 else "exact"
+
+
 def match_houses(responses, building_records, aliases=None, roads=None, directory=None):
     # Alias overrides are human-reviewed, not guessed from string similarity.
     aliases = aliases or {}
@@ -148,10 +157,9 @@ def match_houses(responses, building_records, aliases=None, roads=None, director
                 if not street_type or (ambiguous_kind and untyped):
                     status, matches = "candidate_street_type", compatible
                 else:
-                    # Several distinct polygons can legitimately share one
-                    # postal address (e.g. Велика, 87). This is a confirmed
-                    # address-to-many-polygons association, not ambiguity.
-                    status, matches = "exact", compatible
+                    # Many polygons from one source may share an address.
+                    # A cross-source Visicom/OSM combination remains ambiguous.
+                    status, matches = resolved_address_status(compatible), compatible
             else:
                 loose_all = name_loose_idx.get((street_name, house_candidate_key(house)), [])
                 loose = [b for b in loose_all if b["kind"] is None or b["kind"] == street_type]
@@ -182,7 +190,7 @@ def match_houses(responses, building_records, aliases=None, roads=None, director
                         if not street_type or (swapped_ambiguous and untyped):
                             status, matches = "candidate_street_type", swapped_compatible
                         else:
-                            status, matches = "exact", swapped_compatible
+                            status, matches = resolved_address_status(swapped_compatible), swapped_compatible
                     else:
                         swapped_loose_all = name_loose_idx.get(
                             (swapped, house_candidate_key(house)), [])
