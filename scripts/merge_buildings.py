@@ -85,6 +85,8 @@ def create_merged(visicom_collection, osm_collection, boundary_collection,
         visicom.append({"type": "Feature", "geometry": f["geometry"],
                          "properties": {"source": "visicom", "sourceId": vid,
                                         "visicomId": vid, "street": props.get("street") or None,
+                                        "street_type": props.get("street_type") or None,
+                                        "street_id": props.get("street_id") or None,
                                         "housenumber": props.get("name") or None,
                                         "name": props.get("name") or None,
                                         "matchStatus": "primary"}})
