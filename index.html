@@ -169,7 +169,33 @@ function drawCandidates(p){
  }
 }
 const geometryVisicomClasses=new Map(),geometryOSMClasses=new Map(),visicomPartners=new Map(),osmPartners=new Map(),osmRenderPartners=new Map();let unifiedHiddenOSM=new Set();
-function isUnified(){return document.getElementById('unifiedBuildings').checked&&visicomPolygonMap.size>0;}
+const showOsmPolygons=document.getElementById('showBuildings');
+const showVisicomPolygons=document.getElementById('showVisicomPolygons');
+const showUnifiedBuildings=document.getElementById('unifiedBuildings');
+function isUnified(){return showUnifiedBuildings.checked&&visicomPolygonMap.size>0;}
+// The independent OSM/Visicom overlays and the unified layer are mutually
+// exclusive. House-number visibility is a separate, unrestricted choice.
+function selectIndependentOsm(){
+ showOsmPolygons.checked=true;
+ showUnifiedBuildings.checked=false;
+ renderVisicomPolygons();
+ scheduleRender();
+}
+function changeBuildingLayerSelection(kind){
+ if(kind==='unified'&&showUnifiedBuildings.checked){
+  showOsmPolygons.checked=false;
+  showVisicomPolygons.checked=false;
+ }else if((kind==='osm'&&showOsmPolygons.checked)||
+          (kind==='visicom'&&showVisicomPolygons.checked)){
+  showUnifiedBuildings.checked=false;
+ }
+ updateUnified();
+ renderVisicomPolygons();
+ scheduleRender();
+}
+showOsmPolygons.addEventListener('change',()=>changeBuildingLayerSelection('osm'));
+showVisicomPolygons.addEventListener('change',()=>changeBuildingLayerSelection('visicom'));
+showUnifiedBuildings.addEventListener('change',()=>changeBuildingLayerSelection('unified'));
 function updateUnified(){
  unifiedHiddenOSM=new Set();
  if(premergedBuildings){const m=premergedBuildings.metadata||{};document.getElementById('unifiedStats').textContent='Попередньо об’єднаний набір: '+m.visicom+' Visicom + '+m.osmSupplemental+' OSM; відкинуто дублікати OSM: '+m.osmSkippedOverlap+'. Пороги визначено під час генерації GitHub Actions.';return;}
@@ -180,7 +206,7 @@ function updateUnified(){
  const st=document.getElementById('unifiedStats');
  st.textContent=isUnified()?'Єдиний шар: '+visicomPolygonMap.size+' Visicom; приховано '+unifiedHiddenOSM.size+' OSM-контурів за IoU ≥ '+t.high.toFixed(2)+' або перекриттям ≥ '+t.overlap.toFixed(2)+'. Це лише відображення; дані не об’єднуються.':'Для об’єднання увімкни режим і завантаж Visicom-полігони.';
 }
-document.getElementById('unifiedBuildings').addEventListener('change',()=>{if(isUnified()){document.getElementById('showBuildings').checked=true;document.getElementById('showVisicomPolygons').checked=true;}updateUnified();renderVisicomPolygons();scheduleRender();});
+
 
 const geometryColors={high:'#22c55e',medium:'#eab308',low:'#f97316',none:'#a78bfa'};
 function geometryLimits(){const values=['iouHigh','iouMedium','iouLow','overlapThreshold'].map(x=>Number(document.getElementById(x).value));return {high:values[0],medium:Math.min(values[1],values[0]),low:Math.min(values[2],values[1],values[0]),overlap:values[3]};}
@@ -230,7 +256,7 @@ function isConflictOSM(id){return (osmPartners.get(String(id))||[]).length>1||(o
 function conflictText(edges,side){return edges.map(e=>(side==='osm'?'Visicom '+e.visicomId:'OSM '+e.osmId)+' · IoU '+e.iou.toFixed(2)+' · перекриття '+e.overlap.toFixed(2)).join(' | ')}
 document.getElementById('showGeometryConflicts').addEventListener('change',()=>{if(document.getElementById('showGeometryConflicts').checked)document.getElementById('showBuildings').checked=true;renderVisicomPolygons();scheduleRender()});
 function renderVisicomPolygons(){visicomPolygonsGroup.clearLayers();if(!visicomPolygons||(!document.getElementById('showVisicomPolygons').checked&&!isUnified()))return;L.geoJSON({type:'FeatureCollection',features:visicomPolygons.features.filter(inSettlement)},{style:f=>{const status=document.getElementById('showGeometryMatches').checked;const conflict=document.getElementById('showGeometryConflicts').checked&&isConflictVisicom(f.properties.visicomId);const c=isUnified()?'#8b5cf6':conflict?'#ef4444':status?(geometryColors[geometryVisicomClasses.get(String(f.properties.visicomId))||'none']):'#a78bfa';return {color:c,weight:conflict?3:1.6,fillColor:c,fillOpacity:isUnified()?.65:.27}},onEachFeature:(f,layer)=>{const p=f.properties||{},div=document.createElement('div'),strong=document.createElement('strong');strong.textContent=[p.street,p.name].filter(Boolean).join(', ')||'Visicom';div.append(strong,document.createElement('br'),document.createTextNode('Visicom ID: '+String(p.visicomId||'')+' · '+f.geometry.type));const edges=visicomPartners.get(String(p.visicomId))||[];if(edges.length)div.append(document.createElement('br'),document.createTextNode('Відповідники: '+conflictText(edges,'visicom')));layer.bindPopup(div)}}).addTo(visicomPolygonsGroup)}
-document.getElementById('showVisicomPolygons').addEventListener('change',renderVisicomPolygons);
+
 // Persist ONLY the encrypted user-supplied export in IndexedDB (localStorage is too small).
 const visicomCacheDb='borodianka-visicom-cache',visicomCacheStore='imports';
 function openVisicomCache(){return new Promise((resolve,reject)=>{const req=indexedDB.open(visicomCacheDb,1);req.onupgradeneeded=()=>req.result.createObjectStore(visicomCacheStore);req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);});}
@@ -248,7 +274,13 @@ function applyVisicomFeatures(json){
  const merged=json.metadata?.mergedBuildings===true;
  if(premergedBuildings||merged)visicomPolygonMap.clear();
  premergedBuildings=merged?json:null;
- if(merged){visicomPolygonMap.clear();document.getElementById('unifiedBuildings').checked=true;document.getElementById('showBuildings').checked=true;document.getElementById('showVisicomPolygons').checked=true;}
+ if(merged){
+  visicomPolygonMap.clear();
+  // Automatically select the unified dataset when an encrypted merged set loads.
+  showUnifiedBuildings.checked=true;
+  showOsmPolygons.checked=false;
+  showVisicomPolygons.checked=false;
+ }
  const valid=json.features.filter(f=>f?.type==='Feature'&&['Polygon','MultiPolygon'].includes(f.geometry?.type)&&(!merged||f.properties?.source==='visicom'));
  for(const f of valid){const id=String(f.properties?.visicomId||'');if(id)visicomPolygonMap.set(id,f);}
  visicomPolygons={type:'FeatureCollection',features:[...visicomPolygonMap.values()]};
@@ -985,7 +1017,7 @@ div.append(bold,document.createElement('br'),document.createTextNode('OSM way '+
 }}
 let renderHandle;function scheduleRender(){cancelAnimationFrame(renderHandle);renderHandle=requestAnimationFrame(()=>{render();renderArea();renderHouseNumbers()})}
 inputs.forEach(el=>el.addEventListener('input',scheduleRender));
-document.getElementById('showStreetColors').addEventListener('change',scheduleRender);['showBuildings','showMask','showHouseNumbers'].forEach(id=>document.getElementById(id).addEventListener('change',scheduleRender));map.on('zoomend',scheduleRender);
+document.getElementById('showStreetColors').addEventListener('change',scheduleRender);['showMask','showHouseNumbers'].forEach(id=>document.getElementById(id).addEventListener('change',scheduleRender));map.on('zoomend',scheduleRender);
 // Labels are viewport-filtered; rebuild them when panning or resizing.
 // Avoid a full polygon redraw on each move.
 map.on('moveend resize',()=>requestAnimationFrame(renderHouseNumbers));
