@@ -706,9 +706,25 @@ function dtekReviewConfirmedLinks(decision){
  return decision.source&&decision.id!=null?[{source:decision.source,id:String(decision.id)}]:[];
 }
 let dtekReviewSelectedLinks=new Set();
+function dtekReviewDecisionStatusFor(record){
+ const action=dtekReviewDecisions.get(dtekReviewKey(record))?.action;
+ return action==='confirm'?'confirmed':action==='reject'?'rejected':record.status;
+}
+function dtekReviewRefreshAddressOptions(){
+ for(const [i,record] of dtekReviewRecords.entries()){
+  const option=dtekReviewAddress.querySelector('option[value="'+i+'"]');
+  if(!option)continue;
+  option.textContent=[record.city,record.street,record.house].join(' · ')+
+   ' ['+dtekReviewDecisionStatusFor(record)+']';
+ }
+}
 function dtekReviewCount(){
- const done=dtekReviewDecisions.size;
- dtekReviewDecisionStatus.textContent='Переглянуто: '+done+' / '+dtekReviewRecords.length+'. Рішення лише в пам’яті вкладки, поки не експортуєш JSON.';
+ const decisions=[...dtekReviewDecisions.values()];
+ const confirmed=decisions.filter(d=>d.action==='confirm').length;
+ const rejected=decisions.filter(d=>d.action==='reject').length;
+ dtekReviewDecisionStatus.textContent='Опрацьовано: '+decisions.length+' / '+dtekReviewRecords.length+
+  ' (confirmed: '+confirmed+', rejected: '+rejected+'). Рішення лише в пам’яті вкладки до експорту JSON.';
+ dtekReviewRefreshAddressOptions();
 }
 function dtekReviewSetSelected(index,checked){
  const record=dtekReviewGetRecord();
@@ -730,7 +746,7 @@ function dtekReviewDisplay(){
  }
  const info=[record.city,record.street,record.house].filter(Boolean).join(', ');
  const current=dtekReviewDecisions.get(dtekReviewKey(record));
- dtekReviewDetail.textContent=info+' · '+record.status+' · кандидатів: '+(record.links||[]).length+
+ dtekReviewDetail.textContent=info+' · '+dtekReviewDecisionStatusFor(record)+' · кандидатів: '+(record.links||[]).length+
   (current?' · рішення: '+current.action:'')+' · вибрано: '+dtekReviewSelectedLinks.size;
  if(!record.links?.length)dtekReviewTarget.textContent='Немає контурів для цієї адреси';
  for(let i=0;i<(record.links||[]).length;i++){
@@ -755,7 +771,10 @@ function dtekReviewDraw(){
   for(let i=0;i<(record.links||[]).length;i++){
    const link=record.links[i],feature=dtekReviewFeature(link);
    if(!feature)continue;
-   const c=dtekReviewPalette[record.status]||'#f59e0b';
+   const decision=dtekReviewDecisions.get(dtekReviewKey(record));
+   const selectedConfirmed=decision?.action==='confirm'&&
+    dtekReviewConfirmedLinks(decision).some(saved=>dtekReviewLinkKey(saved)===dtekReviewLinkKey(link));
+   const c=selectedConfirmed?'#22c55e':dtekReviewPalette[record.status]||'#f59e0b';
    const highlighted=record===dtekReviewGetRecord()&&dtekReviewSelectedLinks.has(dtekReviewLinkKey(link));
    const layer=L.geoJSON(feature,{style:{color:highlighted?'#fff':c,weight:highlighted?4:2.3,fillColor:c,fillOpacity:highlighted?.55:.22},onEachFeature:(_f,polygon)=>{
     polygon.on('click',()=>{
@@ -775,7 +794,7 @@ function dtekReviewDraw(){
     const div=document.createElement('div');
     const strong=document.createElement('strong');
     strong.textContent=[record.city,record.street,record.house].filter(Boolean).join(', ');
-    div.append(strong,document.createElement('br'),document.createTextNode(record.status+' · '+link.source+' #'+link.id+' · '+[link.street,link.house].filter(Boolean).join(', ')));
+    div.append(strong,document.createElement('br'),document.createTextNode((selectedConfirmed?'confirmed':record.status)+' · '+link.source+' #'+link.id+' · '+[link.street,link.house].filter(Boolean).join(', ')));
     polygon.bindPopup(div);
    }});
    dtekReviewLayer.addLayer(layer);drawn++;
