@@ -137,8 +137,10 @@ def match_houses(responses, building_records, aliases=None, roads=None, director
             compatible = [b for b in same_name if b["kind"] is None or b["kind"] == street_type]
             conflicting = [b for b in same_name if b["kind"] and b["kind"] != street_type]
             if same_name:
-                if conflicting or ambiguous_kind or not street_type:
-                    # An untyped Visicom address cannot choose between a street and lane.
+                # An explicitly typed building can be confirmed despite a
+                # namesake lane/street elsewhere in the directory. An untyped
+                # building cannot resolve this conflict on its own.
+                if conflicting or not street_type or (ambiguous_kind and any(b["kind"] is None for b in same_name)):
                     status, matches = "candidate_street_type", same_name
                 elif len(compatible) == 1:
                     status, matches = "exact", compatible
@@ -171,7 +173,7 @@ def match_houses(responses, building_records, aliases=None, roads=None, director
                     swapped_conflicting = [b for b in swapped_same
                                            if b["kind"] and b["kind"] != street_type]
                     if swapped_same:
-                        if swapped_conflicting or swapped_ambiguous or not street_type:
+                        if swapped_conflicting or not street_type or (swapped_ambiguous and any(b["kind"] is None for b in swapped_same)):
                             status, matches = "candidate_street_type", swapped_same
                         elif len(swapped_compatible) == 1:
                             status, matches = "exact", swapped_compatible
