@@ -383,8 +383,9 @@ function clearFeaturePatch(source,id,field){
  featureRevision++;
 }
 function refreshEditedFeatureLayers(){
- // All overlays take their features from the same patched data view.
+ // All overlays and address-point containment use the patched data view.
  calculateMatches();
+ if(selectedBuilding!=null)osmAddressRefreshSelected();
  dtekPresenceDraw();
  dtekReviewDraw();
  scheduleRender();
@@ -889,7 +890,27 @@ for(const [side,sign] of [['L',-1],['R',1]])L.polyline(offsetCoords(line,sign*of
 }
 function pointInRing(p,ring){let inside=false;for(let i=0,j=ring.length-1;i<ring.length;j=i++){const a=ring[i],b=ring[j];if((a[1]>p[1])!==(b[1]>p[1])&&p[0]<(b[0]-a[0])*(p[1]-a[1])/(b[1]-a[1])+a[0])inside=!inside;}return inside;}
 function containsPoint(p,geometry){const polys=geometry.type==='Polygon'?[geometry.coordinates]:geometry.type==='MultiPolygon'?geometry.coordinates:[];return polys.some(rings=>pointInRing(p,rings[0])&&!rings.slice(1).some(r=>pointInRing(p,r)));}
-function calculateMatches(){if(!addressPoints||!buildingData)return;const matches=new Map();let matched=0,unmatched=0,ambiguous=0;for(const point of addressPoints.features){const pos=point.geometry.coordinates;const found=buildingData.features.filter(b=>containsPoint(pos,b.geometry));if(found.length===1){matched++;const id=found[0].properties.id;matches.set(id,[...(matches.get(id)||[]),point.properties]);}else if(found.length===0)unmatched++;else ambiguous++;}pointMatching=matches;pointStats.textContent=`Адресних точок: ${addressPoints.features.length}. Однозначно всередині будівлі: ${matched}; поза будівлями: ${unmatched}; у кількох полігонах: ${ambiguous}. Точки всередині будівлі не означають автоматично, що це єдина адреса будинку.`;}
+function calculateMatches(){
+ if(!addressPoints||!buildingData)return;
+ // Compare nodes with the current, patched OSM geometry, never the imported
+ // source polygons. A moved/resized polygon must gain/lose enclosed nodes.
+ const buildings=currentDataset(buildingData).features;
+ const matches=new Map();
+ let matched=0,unmatched=0,ambiguous=0;
+ for(const point of addressPoints.features){
+  if(point.geometry?.type!=='Point')continue;
+  const pos=point.geometry.coordinates;
+  const found=buildings.filter(b=>containsPoint(pos,b.geometry));
+  if(found.length===1){
+   matched++;
+   const id=found[0].properties.id;
+   matches.set(id,[...(matches.get(id)||[]),point.properties]);
+  }else if(found.length===0)unmatched++;
+  else ambiguous++;
+ }
+ pointMatching=matches;
+ pointStats.textContent=`Адресних точок: ${addressPoints.features.length}. Однозначно всередині будівлі: ${matched}; поза будівлями: ${unmatched}; у кількох полігонах: ${ambiguous}. Точки всередині будівлі не означають автоматично, що це єдина адреса будинку.`;
+}
 function renderPoints(){pointGroup.clearLayers();if(!addressPoints||!pointToggle.checked||map.getZoom()<15)return;for(const f of addressPoints.features){const p=f.properties,coords=f.geometry.coordinates;const marker=L.circleMarker([coords[1],coords[0]],{radius:4,weight:1,color:'#fff',fillColor:'#06b6d4',fillOpacity:.95});const popup=document.createElement('div');const head=document.createElement('strong');head.textContent=[p.street,p.housenumber].filter(Boolean).join(', ')||'Адресна точка';popup.append(head,document.createElement('br'),document.createTextNode('OSM node '+p.id));marker.bindPopup(popup).addTo(pointGroup);}}
 // House labels are positioned inside original Visicom/OSM polygons (not the basemap).
 // An indexed, viewport-only overlay avoids thousands of offscreen DOM markers.
