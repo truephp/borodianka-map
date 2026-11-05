@@ -68,7 +68,7 @@ class AddressMatchingTests(unittest.TestCase):
             feature("visicom", "c", "вулиця Тараса Шевченка", "9"),
         ]}))
         report = match_houses([dtek("с-ще Бородянка", "вул. Шевченка Тараса", ["8", "9"])], buildings)
-        self.assertEqual(report["counts"], {"candidate_street_type": 1, "multiple": 1})
+        self.assertEqual(report["counts"], {"unmatched": 1, "multiple": 1})
 
     def test_reverse_not_applied_to_three_word_names(self):
         buildings = list(address_records({"features": [
@@ -100,9 +100,8 @@ class AddressMatchingTests(unittest.TestCase):
         report = match_houses([
             dtek("с-ще Бородянка", "вул. Грушевського", ["7"])
         ], buildings, directory=directory)
-        self.assertEqual(report["counts"], {"candidate_street_type": 1})
-        # Both source types are present for the same house: do not silently
-        # discard the conflicting lane as a candidate.
+        self.assertEqual(report["counts"], {"exact": 1})
+        self.assertEqual([b["id"] for b in report["records"][0]["links"]], ["street"])
 
     def test_hrushevskogo_explicit_street_unique_number(self):
         directory = {"streets": {
@@ -142,7 +141,8 @@ class AddressMatchingTests(unittest.TestCase):
         report = match_houses([
             dtek("с-ще Бородянка", "вул. Грушевського", ["7"])
         ], record)
-        self.assertEqual(report["counts"], {"candidate_street_type": 1})
+        self.assertEqual(report["counts"], {"unmatched": 1})
+        self.assertEqual(report["records"][0]["links"], [])
 
     def test_hrushevskogo_untyped_visicom_remains_candidate(self):
         directory = {"streets": {
@@ -157,6 +157,43 @@ class AddressMatchingTests(unittest.TestCase):
         ], buildings, directory=directory)
         self.assertEqual(report["counts"], {"candidate_street_type": 1})
         self.assertEqual(report["records"][0]["links"][0]["id"], "unknown-type")
+
+    def test_street_lane_same_number_only_correct_type_linked(self):
+        street = feature("visicom", "street-5", "Будівельників", "5")
+        lane = feature("visicom", "lane-5", "Будівельників", "5")
+        street["properties"]["street_type"] = "вулиця"
+        lane["properties"]["street_type"] = "провулок"
+        buildings = list(address_records({"features": [street, lane]}))
+        report = match_houses([
+            dtek("с-ще Бородянка", "вул. Будівельників", ["5"]),
+            dtek("с-ще Бородянка", "пров. Будівельників", ["5"]),
+        ], buildings)
+        self.assertEqual(report["counts"], {"exact": 2})
+        self.assertEqual(report["records"][0]["links"][0]["id"], "street-5")
+        self.assertEqual(report["records"][1]["links"][0]["id"], "lane-5")
+
+    def test_opposite_kind_candidate_house_format_is_excluded(self):
+        lane = feature("visicom", "lane-5a", "Будівельників", "5А")
+        lane["properties"]["street_type"] = "провулок"
+        buildings = list(address_records({"features": [lane]}))
+        report = match_houses([
+            dtek("с-ще Бородянка", "вул. Будівельників", ["5/А"]),
+        ], buildings)
+        self.assertEqual(report["counts"], {"unmatched": 1})
+        self.assertEqual(report["records"][0]["links"], [])
+
+    def test_untyped_and_explicit_same_type_with_namesake_lane(self):
+        typed = feature("visicom", "street", "Коцюбинського", "9")
+        typed["properties"]["street_type"] = "вулиця"
+        untyped = feature("osm", "unknown", "Коцюбинського", "9")
+        records = list(address_records({"features": [typed, untyped]}))
+        directory = {"streets": {"с-ще Бородянка": [
+            "вул. Коцюбинського", "пров. Коцюбинського"]}}
+        report = match_houses([
+            dtek("с-ще Бородянка", "вул. Коцюбинського", ["9"])
+        ], records, directory=directory)
+        self.assertEqual(report["counts"], {"candidate_street_type": 1})
+        self.assertEqual({x["id"] for x in report["records"][0]["links"]}, {"street", "unknown"})
 
     def test_house_suffixes_not_merged(self):
         self.assertNotEqual(house_key("1А"), house_key("1/А"))
@@ -180,10 +217,10 @@ class AddressMatchingTests(unittest.TestCase):
             dtek("смт Бородянка", "вул. Жиліна", ["2"]),
         ]
         result = match_houses(records, buildings)
-        self.assertEqual(result["counts"], {"exact": 2, "candidate_street_type": 1, "candidate_house_format": 2, "unmatched": 1})
+        self.assertEqual(result["counts"], {"exact": 3, "candidate_house_format": 2, "unmatched": 1})
         exact = next(x for x in result["records"] if x.get("street") == "вул. Жиліна")
-        self.assertEqual(exact["status"], "candidate_street_type")
-        self.assertEqual({b["id"] for b in exact["links"]}, {"3", "4"})
+        self.assertEqual(exact["status"], "exact")
+        self.assertEqual({b["id"] for b in exact["links"]}, {"3"})
         self.assertEqual({b["source"] for b in exact["links"]}, {"osm"})
 
     def test_visicom_missing_street_type_is_exact_without_conflicts(self):
@@ -255,7 +292,8 @@ class AddressMatchingTests(unittest.TestCase):
         report = match_houses([
             dtek("с-ще Бородянка", "вул. Грушевського", ["3"]),
         ], buildings)
-        self.assertEqual(report["counts"], {"candidate_street_type": 1})
+        self.assertEqual(report["counts"], {"unmatched": 1})
+        self.assertEqual(report["records"][0]["links"], [])
 
     def test_duplicates_are_not_exact(self):
         buildings = list(address_records({"features": [
