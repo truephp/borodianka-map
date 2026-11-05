@@ -692,27 +692,50 @@ function dtekReviewFeature(link){
  return buildingData?.features.find(f=>String(f.properties?.id)===id)||null;
 }
 function dtekReviewGetRecord(){return dtekReviewRecords[dtekReviewSelected]||null;}
+function dtekReviewLinkKey(link){return link.source+':'+String(link.id);}
+function dtekReviewConfirmedLinks(decision){
+ if(decision?.action!=='confirm')return [];
+ if(Array.isArray(decision.links))return decision.links;
+ return decision.source&&decision.id!=null?[{source:decision.source,id:String(decision.id)}]:[];
+}
+let dtekReviewSelectedLinks=new Set();
 function dtekReviewCount(){
- const done=[...dtekReviewDecisions.values()].length;
+ const done=dtekReviewDecisions.size;
  dtekReviewDecisionStatus.textContent='Переглянуто: '+done+' / '+dtekReviewRecords.length+'. Рішення лише в пам’яті вкладки, поки не експортуєш JSON.';
+}
+function dtekReviewSetSelected(index,checked){
+ const record=dtekReviewGetRecord();
+ if(!record?.links?.[index])return;
+ const key=dtekReviewLinkKey(record.links[index]);
+ if(checked)dtekReviewSelectedLinks.add(key);
+ else dtekReviewSelectedLinks.delete(key);
+ dtekReviewDisplay();
 }
 function dtekReviewDisplay(){
  const record=dtekReviewGetRecord();
  dtekReviewTarget.replaceChildren();
- if(!record){dtekReviewDetail.textContent='Вибери адресу для перевірки.';dtekReviewLayer.clearLayers();return;}
+ if(!record){
+  dtekReviewSelectedLinks.clear();
+  dtekReviewTarget.textContent='Спочатку вибери адресу';
+  dtekReviewDetail.textContent='Вибери адресу для перевірки.';
+  dtekReviewLayer.clearLayers();
+  return;
+ }
  const info=[record.city,record.street,record.house].filter(Boolean).join(', ');
  const current=dtekReviewDecisions.get(dtekReviewKey(record));
- dtekReviewDetail.textContent=info+' · '+record.status+' · кандидатів: '+(record.links||[]).length+(current?' · рішення: '+current.action:'');
- const empty=new Option('Оберіть контур для підтвердження','');
- dtekReviewTarget.add(empty);
+ dtekReviewDetail.textContent=info+' · '+record.status+' · кандидатів: '+(record.links||[]).length+
+  (current?' · рішення: '+current.action:'')+' · вибрано: '+dtekReviewSelectedLinks.size;
+ if(!record.links?.length)dtekReviewTarget.textContent='Немає контурів для цієї адреси';
  for(let i=0;i<(record.links||[]).length;i++){
-  const link=record.links[i];
-  const label=[link.source+' #'+link.id,link.street,link.house].filter(Boolean).join(' · ');
-  dtekReviewTarget.add(new Option(label,String(i)));
- }
- if(current?.action==='confirm'){
-  const selected=(record.links||[]).findIndex(link=>link.source===current.source&&String(link.id)===current.id);
-  if(selected>=0)dtekReviewTarget.value=String(selected);
+  const link=record.links[i],label=document.createElement('label'),checkbox=document.createElement('input');
+  label.style.cssText='display:flex;align-items:flex-start;gap:7px;padding:5px;cursor:pointer';
+  checkbox.type='checkbox';
+  checkbox.checked=dtekReviewSelectedLinks.has(dtekReviewLinkKey(link));
+  checkbox.addEventListener('change',()=>dtekReviewSetSelected(i,checkbox.checked));
+  const caption=document.createElement('span');
+  caption.textContent=[link.source+' #'+link.id,link.street,link.house].filter(Boolean).join(' · ');
+  label.append(checkbox,caption);
+  dtekReviewTarget.append(label);
  }
  dtekReviewDraw();
 }
@@ -726,16 +749,17 @@ function dtekReviewDraw(){
    const link=record.links[i],feature=dtekReviewFeature(link);
    if(!feature)continue;
    const c=dtekReviewPalette[record.status]||'#f59e0b';
-   const highlighted=record===dtekReviewGetRecord()&&String(i)===dtekReviewTarget.value;
+   const highlighted=record===dtekReviewGetRecord()&&dtekReviewSelectedLinks.has(dtekReviewLinkKey(link));
    const layer=L.geoJSON(feature,{style:{color:highlighted?'#fff':c,weight:highlighted?4:2.3,fillColor:c,fillOpacity:highlighted?.55:.22},onEachFeature:(_f,polygon)=>{
     polygon.on('click',()=>{
      const at=dtekReviewRecords.indexOf(record);
      if(at<0)return;
      dtekReviewSelected=at;
      dtekReviewAddress.value=String(at);
+     const key=dtekReviewLinkKey(link);
+     if(dtekReviewSelectedLinks.has(key))dtekReviewSelectedLinks.delete(key);
+     else dtekReviewSelectedLinks.add(key);
      dtekReviewDisplay();
-     dtekReviewTarget.value=String(i);
-     dtekReviewDraw();
     });
     const div=document.createElement('div');
     const strong=document.createElement('strong');
