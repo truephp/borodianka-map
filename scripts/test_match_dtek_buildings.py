@@ -119,6 +119,31 @@ class AddressMatchingTests(unittest.TestCase):
         self.assertEqual(report["counts"], {"exact": 1})
         self.assertEqual(report["records"][0]["links"][0]["id"], "street")
 
+    def test_hrushevskogo_visicom_explicit_street_type(self):
+        directory = {"streets": {
+            "с-ще Бородянка": ["вул. Грушевського"],
+            "смт Бородянка": ["пров. Грушевського"],
+        }}
+        building = feature("visicom", "typed", "Грушевського", "7")
+        building["properties"]["street_type"] = "вулиця"
+        record = list(address_records({"features": [building]}))
+        self.assertEqual(record[0]["kind"], "street")
+        report = match_houses([
+            dtek("с-ще Бородянка", "вул. Грушевського", ["7"])
+        ], record, directory=directory)
+        self.assertEqual(report["counts"], {"exact": 1})
+        self.assertEqual(report["records"][0]["links"][0]["id"], "typed")
+
+    def test_visicom_explicit_lane_does_not_match_street(self):
+        building = feature("visicom", "lane", "Грушевського", "7")
+        building["properties"]["street_type"] = "провулок"
+        record = list(address_records({"features": [building]}))
+        self.assertEqual(record[0]["kind"], "lane")
+        report = match_houses([
+            dtek("с-ще Бородянка", "вул. Грушевського", ["7"])
+        ], record)
+        self.assertEqual(report["counts"], {"candidate_street_type": 1})
+
     def test_hrushevskogo_untyped_visicom_remains_candidate(self):
         directory = {"streets": {
             "с-ще Бородянка": ["вул. Грушевського"],
