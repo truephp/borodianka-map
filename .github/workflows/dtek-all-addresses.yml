@@ -7,6 +7,7 @@ on:
       - '.github/workflows/dtek-all-addresses.yml'
       - 'scripts/fetch_dtek_shared_houses.py'
       - 'scripts/match_dtek_buildings.py'
+      - 'scripts/match_dtek_streets.py'
       - 'scripts/test_match_dtek_buildings.py'
   workflow_dispatch:
   schedule:
