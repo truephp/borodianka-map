@@ -361,6 +361,35 @@ class AddressMatchingTests(unittest.TestCase):
         self.assertEqual(report["counts"], {"unmatched": 1})
         self.assertEqual(report["records"][0]["links"], [])
 
+    def test_polygon_corrected_from_semashka_1_to_3e(self):
+        polygon = feature("osm", "939469763", "вулиця Семашка", "3е")
+        polygon["properties"]["addresses"] = [{
+            "street": "вулиця Семашка", "housenumber": "3е",
+            "fromPolygon": False, "pointIds": ["100"]
+        }]
+        buildings = list(address_records({"features": [polygon]}))
+        report = match_houses([dtek("с-ще Бородянка", "вул. Семашка", ["1", "3е"])], buildings)
+        self.assertEqual(report["counts"], {"unmatched": 1, "exact": 1})
+        self.assertEqual(report["records"][0]["status"], "unmatched")
+        self.assertEqual(report["records"][1]["links"][0]["id"], "939469763")
+
+    def test_polygon_multiple_addresses_are_independently_matched(self):
+        polygon = feature("osm", "939469763", "вулиця Семашка", "1")
+        polygon["properties"]["addresses"] = [
+            {"street": "вулиця Семашка", "housenumber": "1", "pointIds": [], "fromPolygon": True},
+            {"street": "вулиця Семашка", "housenumber": "3е", "pointIds": ["100"], "fromPolygon": False}
+        ]
+        buildings = list(address_records({"features": [polygon]}))
+        report = match_houses([dtek("с-ще Бородянка", "вул. Семашка", ["1", "3е"])], buildings)
+        self.assertEqual(report["counts"], {"exact": 2})
+        self.assertEqual({r["links"][0]["id"] for r in report["records"]}, {"939469763"})
+
+    def test_explicit_empty_polygon_addresses_are_not_matched(self):
+        polygon = feature("osm", "939469763", "вулиця Семашка", "1")
+        polygon["properties"]["addresses"] = []
+        buildings = list(address_records({"features": [polygon]}))
+        self.assertEqual(buildings, [])
+
     def test_house_metadata_is_preserved_in_exact_match(self):
         buildings = list(address_records({"features": [
             feature("visicom", "v44", "Центральна", "44")
