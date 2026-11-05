@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import re
 import sys
+import unicodedata
 
 CITIES = ("с-ще Бородянка", "смт Бородянка")
 
@@ -19,9 +20,25 @@ def shared_streets(directory):
     return sorted(set(streets[CITIES[0]]) & set(streets[CITIES[1]]))
 
 
+# Latin/Cyrillic lookalikes often occur in letter suffixes of house numbers.
+# Do not strip separators between digits: 2/3 is NOT house 23.
+SUFFIX_LOOKALIKES = str.maketrans({
+    "a": "а", "b": "в", "c": "с", "e": "е", "h": "н",
+    "i": "і", "k": "к", "m": "м", "o": "о", "p": "р",
+    "t": "т", "x": "х",
+})
+
+
 def house_key(value):
-    # Keep suffixes and building subdivisions distinct; whitespace/case are safe.
-    return re.sub(r"\s+", "", str(value)).casefold().replace("’", "'").replace("ʼ", "'")
+    text = unicodedata.normalize("NFKC", str(value)).casefold()
+    text = re.sub(r"\s+", "", text).replace("’", "'").replace("ʼ", "'")
+    # Only a separator directly before a LETTER suffix is optional.
+    # 230А, 230/А, 230-А, 230A are the same address.
+    text = re.sub(r"^(\d+)[/-](?=[^\W\d_]$)", r"\1", text, flags=re.UNICODE)
+    if re.fullmatch(r"\d+[^\W\d_]+", text, flags=re.UNICODE):
+        prefix = re.match(r"\d+", text).group()
+        text = prefix + text[len(prefix):].translate(SUFFIX_LOOKALIKES)
+    return text
 
 
 def extract_houses(response):
