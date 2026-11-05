@@ -141,28 +141,28 @@ def match_houses(responses, building_records, aliases=None, roads=None, director
             hkey = house_key(house)
             same_name = name_idx.get((street_name, hkey), [])
             compatible = [b for b in same_name if b["kind"] is None or b["kind"] == street_type]
-            conflicting = [b for b in same_name if b["kind"] and b["kind"] != street_type]
-            if same_name:
-                # An explicitly typed building can be confirmed despite a
-                # namesake lane/street elsewhere in the directory. An untyped
-                # building cannot resolve this conflict on its own.
-                if conflicting or not street_type or (ambiguous_kind and any(b["kind"] is None for b in same_name)):
-                    status, matches = "candidate_street_type", same_name
+            if compatible:
+                # Explicitly incompatible lanes/streets must never appear in
+                # the candidate links, even if the number is identical.
+                untyped = any(b["kind"] is None for b in compatible)
+                if not street_type or (ambiguous_kind and untyped):
+                    status, matches = "candidate_street_type", compatible
                 elif len(compatible) == 1:
                     status, matches = "exact", compatible
-                elif len(compatible) > 1:
-                    status, matches = "multiple", compatible
                 else:
-                    status, matches = "candidate_street_type", same_name
+                    status, matches = "multiple", compatible
             else:
-                loose = name_loose_idx.get((street_name, house_candidate_key(house)), [])
+                loose_all = name_loose_idx.get((street_name, house_candidate_key(house)), [])
+                loose = [b for b in loose_all if b["kind"] is None or b["kind"] == street_type]
                 if loose:
-                    status = ("candidate_house_format"
-                              if street_type and not ambiguous_kind
-                              and all(b["kind"] in (None, street_type) for b in loose)
-                              else "candidate_street_and_house_format")
+                    uncertain_type = not street_type or (
+                        ambiguous_kind and any(b["kind"] is None for b in loose))
+                    status = ("candidate_street_and_house_format" if uncertain_type
+                              else "candidate_house_format")
                     matches = loose
                 else:
+                    # A same-name, same-number building of the opposite known
+                    # street type is not a match or a review candidate.
                     status, matches = "unmatched", []
             # Fallback for two-word street names only. Never override an existing
             # original-name street, or downgrade a normal candidate to a guess.
@@ -176,26 +176,24 @@ def match_houses(responses, building_records, aliases=None, roads=None, director
                     swapped_ambiguous = len(swapped_kinds) > 1
                     swapped_compatible = [b for b in swapped_same
                                           if b["kind"] is None or b["kind"] == street_type]
-                    swapped_conflicting = [b for b in swapped_same
-                                           if b["kind"] and b["kind"] != street_type]
-                    if swapped_same:
-                        if swapped_conflicting or not street_type or (swapped_ambiguous and any(b["kind"] is None for b in swapped_same)):
-                            status, matches = "candidate_street_type", swapped_same
+                    if swapped_compatible:
+                        untyped = any(b["kind"] is None for b in swapped_compatible)
+                        if not street_type or (swapped_ambiguous and untyped):
+                            status, matches = "candidate_street_type", swapped_compatible
                         elif len(swapped_compatible) == 1:
                             status, matches = "exact", swapped_compatible
-                        elif len(swapped_compatible) > 1:
-                            status, matches = "multiple", swapped_compatible
                         else:
-                            status, matches = "candidate_street_type", swapped_same
+                            status, matches = "multiple", swapped_compatible
                     else:
-                        swapped_loose = name_loose_idx.get(
+                        swapped_loose_all = name_loose_idx.get(
                             (swapped, house_candidate_key(house)), [])
+                        swapped_loose = [b for b in swapped_loose_all
+                                         if b["kind"] is None or b["kind"] == street_type]
                         if swapped_loose:
-                            status = ("candidate_house_format"
-                                      if street_type and not swapped_ambiguous
-                                      and all(b["kind"] in (None, street_type)
-                                              for b in swapped_loose)
-                                      else "candidate_street_and_house_format")
+                            uncertain_type = not street_type or (
+                                swapped_ambiguous and any(b["kind"] is None for b in swapped_loose))
+                            status = ("candidate_street_and_house_format" if uncertain_type
+                                      else "candidate_house_format")
                             matches = swapped_loose
                     if status != "unmatched":
                         match_method = "reversed_two_words"
