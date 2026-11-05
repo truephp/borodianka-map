@@ -196,7 +196,11 @@ class AddressMatchingTests(unittest.TestCase):
         self.assertEqual({x["id"] for x in report["records"][0]["links"]}, {"street", "unknown"})
 
     def test_house_suffixes_not_merged(self):
-        self.assertNotEqual(house_key("1А"), house_key("1/А"))
+        self.assertEqual(house_key("1А"), house_key("1/А"))
+        self.assertEqual(house_key("230А"), house_key("230/А"))
+        self.assertEqual(house_key("230A"), house_key("230-А"))
+        self.assertNotEqual(house_key("23"), house_key("2/3"))
+        self.assertNotEqual(house_candidate_key("23"), house_candidate_key("2/3"))
         self.assertNotEqual(house_key("15"), house_key("15А"))
         self.assertNotEqual(house_key("15/1"), house_key("15"))
         self.assertEqual(house_candidate_key("1/А"), house_candidate_key("1A"))
@@ -335,6 +339,30 @@ class AddressMatchingTests(unittest.TestCase):
         report = match_houses([dtek("с-ще Бородянка", "вул. Шевченка Тараса", ["9"])], buildings)
         self.assertEqual(report["counts"], {"multiple": 1})
         self.assertEqual(report["records"][0]["matchMethod"], "reversed_two_words")
+
+    def test_dtek_letter_suffix_duplicates_match_once(self):
+        building = feature("visicom", "v230", "Центральна", "230а")
+        buildings = list(address_records({"features": [building]}))
+        metadata = {"type": "", "sub_type_reason": ["GPV5.1"]}
+        response = {"city": "с-ще Бородянка", "street": "вул. Центральна",
+                    "response": {"result": True, "data": {
+                        "230А": metadata, "230/А": metadata}}}
+        report = match_houses([response], buildings)
+        self.assertEqual(report["counts"], {"exact": 1})
+        self.assertEqual(len(report["records"]), 1)
+        self.assertEqual(set(report["records"][0]["houseVariants"]), {"230А", "230/А"})
+        self.assertEqual(report["records"][0]["links"][0]["id"], "v230")
+        self.assertEqual(report["records"][0]["dtek"], metadata)
+
+    def test_numeric_slash_is_never_matched_as_plain_digits(self):
+        buildings = list(address_records({"features": [
+            feature("visicom", "v23", "Вокзальна", "23"),
+        ]}))
+        report = match_houses([
+            dtek("с-ще Бородянка", "вул. Вокзальна", ["2/3"]),
+        ], buildings)
+        self.assertEqual(report["counts"], {"unmatched": 1})
+        self.assertEqual(report["records"][0]["links"], [])
 
     def test_house_metadata_is_preserved_in_exact_match(self):
         buildings = list(address_records({"features": [
