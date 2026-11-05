@@ -26,6 +26,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
+      - name: Test manual OSM polygon address patching
+        run: python3 -m unittest scripts.test_apply_osm_address_overrides -v
       - name: Validate inline map JavaScript syntax before deployment
         run: |
           python - <<'PY'
