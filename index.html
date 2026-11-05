@@ -785,6 +785,7 @@ async function dtekReviewUseEnvelope(envelope){
  dtekPresenceRecords=report.records.filter(r=>dtekMatchStatuses.has(r.status)&&Array.isArray(r.links)&&r.links.length&&r.house&&r.city&&r.street);
  dtekReviewRecords=records;
  dtekReviewSelected=-1;
+ dtekReviewSelectedLinks.clear();
  dtekReviewDecisions.clear();
  dtekReviewAddress.replaceChildren(new Option('Оберіть адресу',''));
  const entries=[...records.entries()].sort((a,b)=>([a[1].street,a[1].house,a[1].city].join(' ')).localeCompare([b[1].street,b[1].house,b[1].city].join(' '),'uk'));
@@ -822,6 +823,9 @@ dtekReviewAutoLoad();
 dtekReviewEnable.addEventListener('change',dtekReviewDraw);
 dtekReviewAddress.addEventListener('change',()=>{
  dtekReviewSelected=dtekReviewAddress.value===''?-1:Number(dtekReviewAddress.value);
+ const record=dtekReviewGetRecord();
+ const saved=record&&dtekReviewDecisions.get(dtekReviewKey(record));
+ dtekReviewSelectedLinks=new Set(dtekReviewConfirmedLinks(saved).map(dtekReviewLinkKey));
  dtekReviewDisplay();
  const record=dtekReviewGetRecord();
  if(record){
@@ -832,12 +836,17 @@ dtekReviewAddress.addEventListener('change',()=>{
   }
  }
 });
-dtekReviewTarget.addEventListener('change',dtekReviewDraw);
 document.getElementById('dtekReviewConfirm').addEventListener('click',()=>{
- const r=dtekReviewGetRecord(),index=Number(dtekReviewTarget.value);
- if(!r||dtekReviewTarget.value===''||!Number.isInteger(index)||!r.links?.[index]){dtekReviewDecisionStatus.textContent='Спочатку вибери адресу та конкретний контур.';return;}
- const link=r.links[index];
- dtekReviewDecisions.set(dtekReviewKey(r),{action:'confirm',source:link.source,id:String(link.id)});
+ const r=dtekReviewGetRecord();
+ const links=(r?.links||[]).filter(link=>dtekReviewSelectedLinks.has(dtekReviewLinkKey(link)))
+  .map(link=>({source:link.source,id:String(link.id)}));
+ if(!r||!links.length){
+  dtekReviewDecisionStatus.textContent='Спочатку вибери адресу й хоча б один контур.';
+  return;
+ }
+ // A confirmed address may legitimately include both Visicom and OSM
+ // polygons; never collapse the decision to a single source ID.
+ dtekReviewDecisions.set(dtekReviewKey(r),{action:'confirm',links});
  dtekReviewCount();dtekReviewDisplay();
 });
 document.getElementById('dtekReviewReject').addEventListener('click',()=>{
@@ -848,6 +857,7 @@ document.getElementById('dtekReviewReject').addEventListener('click',()=>{
 document.getElementById('dtekReviewReset').addEventListener('click',()=>{
  const r=dtekReviewGetRecord();if(!r)return;
  dtekReviewDecisions.delete(dtekReviewKey(r));
+ dtekReviewSelectedLinks.clear();
  dtekReviewCount();dtekReviewDisplay();
 });
 document.getElementById('dtekReviewExport').addEventListener('click',()=>{
@@ -875,10 +885,19 @@ document.getElementById('dtekReviewImport').addEventListener('change',async e=>{
    const key=JSON.stringify([item.city,item.street,item.house]),r=records.get(key);
    if(!r)continue;
    if(item.action==='reject')restored.set(key,{action:'reject'});
-   else if(item.action==='confirm'&&(r.links||[]).some(l=>l.source===item.source&&String(l.id)===String(item.id)))
-    restored.set(key,{action:'confirm',source:item.source,id:String(item.id)});
+   else if(item.action==='confirm'){
+    // Accept legacy single-contour exports and new multi-contour exports.
+    const candidates=Array.isArray(item.links)?item.links:
+      item.source&&item.id!=null?[{source:item.source,id:String(item.id)}]:[];
+    const allowed=new Set((r.links||[]).map(dtekReviewLinkKey));
+    const links=candidates.filter(l=>l&&allowed.has(dtekReviewLinkKey(l)))
+      .map(l=>({source:l.source,id:String(l.id)}));
+    if(links.length&&links.length===candidates.length)restored.set(key,{action:'confirm',links});
+   }
   }
   dtekReviewDecisions=restored;
+  const record=dtekReviewGetRecord();
+  dtekReviewSelectedLinks=new Set(dtekReviewConfirmedLinks(record&&restored.get(dtekReviewKey(record))).map(dtekReviewLinkKey));
   dtekReviewCount();dtekReviewDisplay();
   dtekReviewDecisionStatus.textContent='Відновлено '+restored.size+' рішень із файлу. Нові рішення знову потрібно експортувати.';
  }catch(err){dtekReviewDecisionStatus.textContent='Не вдалося імпортувати рішення: '+err.message;}
