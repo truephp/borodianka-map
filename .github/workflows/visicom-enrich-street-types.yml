@@ -1,0 +1,76 @@
+name: Enrich Visicom street types (one-time)
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: unified-buildings-r2
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  enrich:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check 'cryptography>=43,<47' 'shapely>=2,<3' 'awscli>=1.40,<3'
+      - name: Test metadata enrichment and street-type matching
+        run: python -m unittest scripts.test_enrich_visicom_street_types scripts.test_match_dtek_buildings -v
+      - name: Download existing encrypted datasets from R2
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          set -euo pipefail
+          endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          mkdir -p "$RUNNER_TEMP/input"
+          aws s3 cp "s3://${R2_BUCKET}/borodianka/source/visicom-buildings.enc.json" "$RUNNER_TEMP/input/source.enc.json" --endpoint-url "$endpoint" --no-progress
+          aws s3 cp "s3://${R2_BUCKET}/borodianka/data/borodianka-buildings.enc.json" "$RUNNER_TEMP/input/unified.enc.json" --endpoint-url "$endpoint" --no-progress
+      - name: Batch-enrich both encrypted collections without geometry requests
+        env:
+          VISICOM_EXPORT_PASSWORD: ${{ secrets.VISICOM_EXPORT_PASSWORD }}
+          VISICOM_API_KEY: ${{ secrets.VISICOM_API_KEY }}
+        run: |
+          python scripts/enrich_visicom_street_types.py \
+            --source "$RUNNER_TEMP/input/source.enc.json" \
+            --unified "$RUNNER_TEMP/input/unified.enc.json" \
+            --out-source "$RUNNER_TEMP/output/source.enc.json" \
+            --out-unified "$RUNNER_TEMP/output/unified.enc.json" \
+            --batch-size 100 --delay 1
+      - name: Publish and verify both encrypted datasets in R2
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          set -euo pipefail
+          endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          aws s3 cp "$RUNNER_TEMP/output/source.enc.json" "s3://${R2_BUCKET}/borodianka/source/visicom-buildings.enc.json" \
+            --endpoint-url "$endpoint" --no-progress --content-type application/json
+          aws s3 cp "$RUNNER_TEMP/output/unified.enc.json" "s3://${R2_BUCKET}/borodianka/data/borodianka-buildings.enc.json" \
+            --endpoint-url "$endpoint" --no-progress --content-type application/json \
+            --cache-control 'public, max-age=60, must-revalidate'
+          aws s3 cp "s3://${R2_BUCKET}/borodianka/source/visicom-buildings.enc.json" "$RUNNER_TEMP/verify-source.enc.json" --endpoint-url "$endpoint" --no-progress
+          aws s3 cp "s3://${R2_BUCKET}/borodianka/data/borodianka-buildings.enc.json" "$RUNNER_TEMP/verify-unified.enc.json" --endpoint-url "$endpoint" --no-progress
+          cmp "$RUNNER_TEMP/output/source.enc.json" "$RUNNER_TEMP/verify-source.enc.json"
+          cmp "$RUNNER_TEMP/output/unified.enc.json" "$RUNNER_TEMP/verify-unified.enc.json"
+      - name: Upload encrypted enriched datasets for recovery
+        uses: actions/upload-artifact@v4
+        with:
+          name: visicom-street-type-enriched
+          path: |
+            ${{ runner.temp }}/output/source.enc.json
+            ${{ runner.temp }}/output/unified.enc.json
+          retention-days: 7
+          if-no-files-found: error
