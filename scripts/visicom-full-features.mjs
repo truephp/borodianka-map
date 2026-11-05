@@ -30,7 +30,7 @@ for(const [n,p] of index.entries.entries()){
   }catch(e){reason=/^HTTP \d+$/.test(e.message)?e.message:'network-error';if(attempt<3)await sleep(1500*2**attempt);}
  }
  if(item){
-  if(['Polygon','MultiPolygon'].includes(item.geometry?.type)){if(!seen.has(id)){state.features.push({type:'Feature',geometry:item.geometry,properties:{visicomId:id,street:String(p.street||''),name:String(p.name||''),geometryType:item.geometry.type}});seen.add(id);}}
+  if(['Polygon','MultiPolygon'].includes(item.geometry?.type)){if(!seen.has(id)){state.features.push({type:'Feature',geometry:item.geometry,properties:{visicomId:id,street:String(item.properties?.street||p.street||''),name:String(item.properties?.name||p.name||''),street_type:item.properties?.street_type||null,street_id:item.properties?.street_id||null,geometryType:item.geometry.type}});seen.add(id);}}
   else state.nonPolygons.push(id);
   state.done[id]=true;
  }else{state.failures.push(id);console.log('Feature request unresolved at index '+n+': '+reason);}
