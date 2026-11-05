@@ -42,6 +42,39 @@ class AddressMatchingTests(unittest.TestCase):
         self.assertNotEqual(street_key("вул. Шевченка Тараса")[1],
                             street_key("Тараса Шевченка")[1])
 
+    def test_two_word_reverse_fallback(self):
+        buildings = list(address_records({"features": [
+            feature("visicom", "v1", "Тараса Шевченка", "8")
+        ]}))
+        report = match_houses([dtek("с-ще Бородянка", "вул. Шевченка Тараса", ["8"])], buildings)
+        self.assertEqual(report["counts"], {"exact": 1})
+        self.assertEqual(report["records"][0]["matchMethod"], "reversed_two_words")
+        self.assertEqual(report["records"][0]["links"][0]["id"], "v1")
+
+    def test_reverse_does_not_override_original_street(self):
+        buildings = list(address_records({"features": [
+            feature("visicom", "normal", "Шевченка Тараса", "2"),
+            feature("visicom", "reversed", "Тараса Шевченка", "8"),
+        ]}))
+        report = match_houses([dtek("с-ще Бородянка", "вул. Шевченка Тараса", ["8"])], buildings)
+        self.assertEqual(report["counts"], {"unmatched": 1})
+
+    def test_reverse_requires_matching_type_and_unambiguous_building(self):
+        buildings = list(address_records({"features": [
+            feature("visicom", "a", "провулок Тараса Шевченка", "8"),
+            feature("visicom", "b", "вулиця Тараса Шевченка", "9"),
+            feature("visicom", "c", "вулиця Тараса Шевченка", "9"),
+        ]}))
+        report = match_houses([dtek("с-ще Бородянка", "вул. Шевченка Тараса", ["8", "9"])], buildings)
+        self.assertEqual(report["counts"], {"candidate_street_type": 1, "multiple": 1})
+
+    def test_reverse_not_applied_to_three_word_names(self):
+        buildings = list(address_records({"features": [
+            feature("visicom", "a", "Тараса Григоровича Шевченка", "8")
+        ]}))
+        report = match_houses([dtek("с-ще Бородянка", "вул. Шевченка Григоровича Тараса", ["8"])], buildings)
+        self.assertEqual(report["counts"], {"unmatched": 1})
+
     def test_house_suffixes_not_merged(self):
         self.assertNotEqual(house_key("1А"), house_key("1/А"))
         self.assertNotEqual(house_key("15"), house_key("15А"))
