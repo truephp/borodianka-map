@@ -147,10 +147,11 @@ def match_houses(responses, building_records, aliases=None, roads=None, director
                 untyped = any(b["kind"] is None for b in compatible)
                 if not street_type or (ambiguous_kind and untyped):
                     status, matches = "candidate_street_type", compatible
-                elif len(compatible) == 1:
-                    status, matches = "exact", compatible
                 else:
-                    status, matches = "multiple", compatible
+                    # Several distinct polygons can legitimately share one
+                    # postal address (e.g. Велика, 87). This is a confirmed
+                    # address-to-many-polygons association, not ambiguity.
+                    status, matches = "exact", compatible
             else:
                 loose_all = name_loose_idx.get((street_name, house_candidate_key(house)), [])
                 loose = [b for b in loose_all if b["kind"] is None or b["kind"] == street_type]
@@ -180,10 +181,8 @@ def match_houses(responses, building_records, aliases=None, roads=None, director
                         untyped = any(b["kind"] is None for b in swapped_compatible)
                         if not street_type or (swapped_ambiguous and untyped):
                             status, matches = "candidate_street_type", swapped_compatible
-                        elif len(swapped_compatible) == 1:
-                            status, matches = "exact", swapped_compatible
                         else:
-                            status, matches = "multiple", swapped_compatible
+                            status, matches = "exact", swapped_compatible
                     else:
                         swapped_loose_all = name_loose_idx.get(
                             (swapped, house_candidate_key(house)), [])
