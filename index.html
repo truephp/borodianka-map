@@ -754,6 +754,10 @@ function dtekReviewDraw(){
     polygon.on('click',()=>{
      const at=dtekReviewRecords.indexOf(record);
      if(at<0)return;
+     if(dtekReviewSelected!==at){
+      const saved=dtekReviewDecisions.get(dtekReviewKey(record));
+      dtekReviewSelectedLinks=new Set(dtekReviewConfirmedLinks(saved).map(dtekReviewLinkKey));
+     }
      dtekReviewSelected=at;
      dtekReviewAddress.value=String(at);
      const key=dtekReviewLinkKey(link);
