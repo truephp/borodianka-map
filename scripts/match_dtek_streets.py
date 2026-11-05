@@ -23,6 +23,15 @@ TYPE_PATTERN = re.compile(r"^(?:" + "|".join(STREET_TYPES) + r")\s+", re.I)
 TRAILING_TYPE_PATTERN = re.compile(r"\s+(?:" + "|".join(STREET_TYPES) + r")$", re.I)
 
 
+# Reviewed Borodianka DTEK / Visicom street-name equivalents.
+# Avoid general word reordering: only these verified variants are canonicalized.
+REVIEWED_STREET_ALIASES = {
+    "костенко ліни": "ліни костенко",
+    "чорновола в'ячеслава": "чорновола",
+    "хмельницького богдана": "богдана хмельницького",
+}
+
+
 def normalize_street(value):
     s = unicodedata.normalize("NFKC", str(value or "")).casefold()
     s = s.replace("’", "'").replace("ʼ", "'").replace("‘", "'")
@@ -30,7 +39,8 @@ def normalize_street(value):
     s = re.sub(r"\s+", " ", s).strip()
     s = TYPE_PATTERN.sub("", s)
     s = TRAILING_TYPE_PATTERN.sub("", s)
-    return re.sub(r"\s+", " ", s).strip()
+    name = re.sub(r"\s+", " ", s).strip()
+    return REVIEWED_STREET_ALIASES.get(name, name)
 
 
 def load_dtek_streets(raw, city=None):
