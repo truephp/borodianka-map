@@ -831,7 +831,6 @@ dtekReviewAddress.addEventListener('change',()=>{
  const saved=record&&dtekReviewDecisions.get(dtekReviewKey(record));
  dtekReviewSelectedLinks=new Set(dtekReviewConfirmedLinks(saved).map(dtekReviewLinkKey));
  dtekReviewDisplay();
- const record=dtekReviewGetRecord();
  if(record){
   const feature=(record.links||[]).map(dtekReviewFeature).find(Boolean);
   if(feature){
