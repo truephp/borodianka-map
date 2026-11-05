@@ -42,3 +42,37 @@ runInNewContext(html.slice(start, end) + `
  assert.equal(currentDataset(original).features[0],original.features[0]);
 `, sandbox);
 console.log('PASS: immutable source, single feature patch view, source ID isolation, geometry/address reset');
+
+// Address-point containment must follow the patched geometry, not stale OSM.
+const ringStart=html.indexOf('function pointInRing(');
+const ringEnd=html.indexOf('function calculateMatches()',ringStart);
+const matchEnd=html.indexOf('function renderPoints()',ringEnd);
+assert(ringStart>=0&&ringEnd>ringStart&&matchEnd>ringEnd,
+  'OSM containment functions must exist');
+const building={
+ type:'FeatureCollection',
+ features:[{type:'Feature',properties:{id:42,source:'osm'},
+  geometry:{type:'Polygon',coordinates:[[[0,0],[2,0],[2,2],[0,2],[0,0]]]}}]
+};
+const nodes={features:[
+ {geometry:{type:'Point',coordinates:[1,1]},properties:{id:100,street:'Паркова',housenumber:'2'}},
+ {geometry:{type:'Point',coordinates:[11,11]},properties:{id:101,street:'Паркова',housenumber:'4'}}
+]};
+const pointStats={textContent:''};
+runInNewContext(html.slice(start,end)+html.slice(ringStart,matchEnd)+`
+ let buildingData=building,addressPoints=nodes,pointMatching=null;
+ calculateMatches();
+ assert.equal(pointMatching.get(42)[0].id,100);
+ assert.match(pointStats.textContent,/Однозначно всередині будівлі: 1/);
+ setFeaturePatch('osm',42,{geometry:{
+  type:'Polygon',coordinates:[[[10,10],[12,10],[12,12],[10,12],[10,10]]]
+ }});
+ calculateMatches();
+ assert.equal(pointMatching.get(42)[0].id,101);
+ assert.equal(pointMatching.get(42).length,1);
+ assert.equal(building.features[0].geometry.coordinates[0][0][0],0);
+ clearFeaturePatch('osm',42,'geometry');
+ calculateMatches();
+ assert.equal(pointMatching.get(42)[0].id,100);
+`,{building,nodes,pointStats,assert});
+console.log('PASS: address nodes are rematched after polygon move and geometry reset');
