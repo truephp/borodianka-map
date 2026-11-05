@@ -10,6 +10,10 @@ on:
       - 'scripts/match_dtek_streets.py'
       - 'scripts/test_match_dtek_buildings.py'
   workflow_dispatch:
+  workflow_run:
+    workflows: ["Enrich Visicom street types (one-time)"]
+    types: [completed]
+    branches: [main]
   schedule:
     # Every hour at minute 17 UTC; avoid GitHub Actions top-of-hour congestion.
     - cron: '17 * * * *'
@@ -23,6 +27,7 @@ concurrency:
 
 jobs:
   import-and-match:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
