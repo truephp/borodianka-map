@@ -503,6 +503,9 @@ document.getElementById('osmGeomApply').addEventListener('click',()=>{
  osmGeomDiscardEditor();
  osmGeomStatus.textContent='Геометрію OSM #'+id+' застосовано локально. Патчів: '+osmGeomPatches.size+
   '. Для збереження експортуй JSON.';
+ // DTEK layers are independent Leaflet groups and are not refreshed by renderArea().
+ dtekPresenceDraw();
+ dtekReviewDraw();
  scheduleRender();
 });
 document.getElementById('osmGeomCancel').addEventListener('click',()=>{
@@ -516,6 +519,8 @@ document.getElementById('osmGeomReset').addEventListener('click',()=>{
  if(original)feature.geometry=structuredClone(original);
  osmGeomOriginal.delete(id);osmGeomPatches.delete(id);
  osmGeomStatus.textContent='Контур відновлено до вихідної геометрії. Патчів: '+osmGeomPatches.size;
+ dtekPresenceDraw();
+ dtekReviewDraw();
  scheduleRender();
 });
 document.getElementById('osmGeomExport').addEventListener('click',()=>{
@@ -1040,8 +1045,12 @@ function dtekReviewKey(record){return JSON.stringify([record.city,record.street,
 function dtekReviewFeature(link){
  const id=String(link.id);
  if(link.source==='visicom')return visicomPolygonMap.get(id)||null;
- if(premergedBuildings)return premergedBuildings.features.find(f=>f.properties?.source==='osm'&&String(f.properties.sourceId)===id)||null;
- return buildingData?.features.find(f=>String(f.properties?.id)===id)||null;
+ // Use the same edited geometry as the main OSM layer. DTEK presence/review
+ // overlays must not redraw the original polygon after a manual move.
+ const feature=premergedBuildings?
+  premergedBuildings.features.find(f=>f.properties?.source==='osm'&&String(f.properties.sourceId)===id):
+  buildingData?.features.find(f=>String(f.properties?.id)===id);
+ return feature?displayedOsmFeature(feature):null;
 }
 function dtekReviewGetRecord(){return dtekReviewRecords[dtekReviewSelected]||null;}
 function dtekReviewLinkKey(link){return link.source+':'+String(link.id);}
