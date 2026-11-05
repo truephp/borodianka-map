@@ -876,18 +876,18 @@ document.getElementById('dtekReviewConfirm').addEventListener('click',()=>{
  // A confirmed address may legitimately include both Visicom and OSM
  // polygons; never collapse the decision to a single source ID.
  dtekReviewDecisions.set(dtekReviewKey(r),{action:'confirm',links});
- dtekReviewCount();dtekReviewDisplay();
+ dtekReviewCount();dtekReviewDisplay();dtekPresenceDraw();
 });
 document.getElementById('dtekReviewReject').addEventListener('click',()=>{
  const r=dtekReviewGetRecord();if(!r)return;
  dtekReviewDecisions.set(dtekReviewKey(r),{action:'reject'});
- dtekReviewCount();dtekReviewDisplay();
+ dtekReviewCount();dtekReviewDisplay();dtekPresenceDraw();
 });
 document.getElementById('dtekReviewReset').addEventListener('click',()=>{
  const r=dtekReviewGetRecord();if(!r)return;
  dtekReviewDecisions.delete(dtekReviewKey(r));
  dtekReviewSelectedLinks.clear();
- dtekReviewCount();dtekReviewDisplay();
+ dtekReviewCount();dtekReviewDisplay();dtekPresenceDraw();
 });
 document.getElementById('dtekReviewExport').addEventListener('click',()=>{
  const entries=dtekReviewRecords.filter(r=>dtekReviewDecisions.has(dtekReviewKey(r))).map(r=>({
@@ -927,7 +927,7 @@ document.getElementById('dtekReviewImport').addEventListener('change',async e=>{
   dtekReviewDecisions=restored;
   const record=dtekReviewGetRecord();
   dtekReviewSelectedLinks=new Set(dtekReviewConfirmedLinks(record&&restored.get(dtekReviewKey(record))).map(dtekReviewLinkKey));
-  dtekReviewCount();dtekReviewDisplay();
+  dtekReviewCount();dtekReviewDisplay();dtekPresenceDraw();
   dtekReviewDecisionStatus.textContent='Відновлено '+restored.size+' рішень із файлу. Нові рішення знову потрібно експортувати.';
  }catch(err){dtekReviewDecisionStatus.textContent='Не вдалося імпортувати рішення: '+err.message;}
 });
