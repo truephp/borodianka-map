@@ -22,6 +22,26 @@ class AddressMatchingTests(unittest.TestCase):
         self.assertEqual(street_key("пров. Жиліна"), ("lane", "жиліна"))
         self.assertNotEqual(street_key("вул. Жиліна"), street_key("пров. Жиліна"))
 
+    def test_reviewed_dtek_visicom_street_variants(self):
+        cases = [
+            ("вул. Костенко Ліни", "Ліни Костенко"),
+            ("вул. Чорновола В’ячеслава", "Чорновола"),
+            ("вул. Хмельницького Богдана", "Богдана Хмельницького"),
+        ]
+        for index, (dtek_street, visicom_street) in enumerate(cases):
+            with self.subTest(dtek_street=dtek_street):
+                self.assertEqual(street_key(dtek_street)[1], street_key(visicom_street)[1])
+                buildings = list(address_records({"features": [
+                    feature("visicom", str(index), visicom_street, "27")
+                ]}))
+                report = match_houses([dtek("с-ще Бородянка", dtek_street, ["27"])], buildings)
+                self.assertEqual(report["counts"], {"exact": 1})
+                self.assertEqual(report["records"][0]["links"][0]["id"], str(index))
+
+    def test_unreviewed_person_name_is_not_reordered(self):
+        self.assertNotEqual(street_key("вул. Шевченка Тараса")[1],
+                            street_key("Тараса Шевченка")[1])
+
     def test_house_suffixes_not_merged(self):
         self.assertNotEqual(house_key("1А"), house_key("1/А"))
         self.assertNotEqual(house_key("15"), house_key("15А"))
