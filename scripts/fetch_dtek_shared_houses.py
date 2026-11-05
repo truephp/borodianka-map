@@ -33,6 +33,27 @@ async def main_async(directory, output, update_fact, delay_seconds, all_streets=
             page = await browser.new_page(locale="uk-UA", timezone_id="Europe/Kyiv")
             navigation = await page.goto(PAGE_URL, wait_until="domcontentloaded", timeout=60000)
             print(f"Source page HTTP: {navigation.status if navigation else 'none'}", file=sys.stderr)
+            # Some DTEK responses initialize metadata after DOMContentLoaded.
+            # Retry only the ordinary public page load; do not issue AJAX without CSRF.
+            for attempt in range(3):
+                try:
+                    await page.locator('meta[name="csrf-token"]').wait_for(
+                        state="attached", timeout=10000
+                    )
+                    break
+                except Exception:
+                    diagnostic = await page.evaluate("""() => ({
+                        title: document.title,
+                        url: location.href,
+                        csrfMetaNames: [...document.querySelectorAll('meta[name*="csrf"]')].map(x => x.name),
+                        hasAddressInput: !!document.querySelector('input'),
+                        bodyLength: document.body?.innerText?.length || 0
+                    })""")
+                    print(f"DTEK page metadata attempt {attempt + 1}/3: {diagnostic}", file=sys.stderr)
+                    if attempt < 2:
+                        await page.wait_for_timeout(2000)
+                        navigation = await page.reload(wait_until="domcontentloaded", timeout=60000)
+                        print(f"DTEK reload HTTP: {navigation.status if navigation else 'none'}", file=sys.stderr)
             metadata = await page.evaluate("""() => {
                 const meta = document.querySelector('meta[name="csrf-token"]');
                 const csrfName = document.querySelector('meta[name="csrf-param"]');
