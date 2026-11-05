@@ -1,6 +1,12 @@
 name: Enrich Visicom street types (one-time)
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/visicom-enrich-street-types.yml'
+      - 'scripts/enrich_visicom_street_types.py'
+      - 'scripts/test_enrich_visicom_street_types.py'
 
 concurrency:
   group: unified-buildings-r2
