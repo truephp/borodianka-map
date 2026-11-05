@@ -26,11 +26,40 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
+      - name: Find latest successful full DTEK report
+        id: dtek-run
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const workflowId = 'dtek-all-addresses.yml';
+            const response = await github.rest.actions.listWorkflowRuns({
+              owner, repo, workflow_id: workflowId, status: 'success', per_page: 20
+            });
+            const run = response.data.workflow_runs.find(run =>
+              run.head_branch === 'main' && run.conclusion === 'success'
+            );
+            if (!run) {
+              core.setFailed('No successful full DTEK report workflow run on main');
+              return;
+            }
+            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+              owner, repo, run_id: run.id, per_page: 100
+            });
+            const artifact = artifacts.data.artifacts.find(a =>
+              a.name === 'dtek-borodianka-full-address-audit' && !a.expired
+            );
+            if (!artifact) {
+              core.setFailed('Latest successful full DTEK run has no non-expired encrypted report artifact');
+              return;
+            }
+            core.setOutput('run-id', String(run.id));
+            core.info('Using full DTEK report from workflow run ' + run.id);
       - name: Include encrypted DTEK matching report on the same site
         uses: actions/download-artifact@v4
         with:
-          name: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.name == 'DTEK KREM all Borodianka addresses vs buildings' && 'dtek-borodianka-full-address-audit' || 'dtek-building-address-audit' }}
-          run-id: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.name == 'DTEK KREM all Borodianka addresses vs buildings' && github.event.workflow_run.id || 41910246449 }}
+          name: dtek-borodianka-full-address-audit
+          run-id: ${{ steps.dtek-run.outputs.run-id }}
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/dtek-review
       - name: Install DTEK report without exposing decrypted Visicom records
