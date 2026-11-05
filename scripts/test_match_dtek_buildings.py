@@ -221,7 +221,7 @@ class AddressMatchingTests(unittest.TestCase):
             dtek("смт Бородянка", "вул. Жиліна", ["2"]),
         ]
         result = match_houses(records, buildings)
-        self.assertEqual(result["counts"], {"exact": 3, "candidate_house_format": 2, "unmatched": 1})
+        self.assertEqual(result["counts"], {"exact": 5, "unmatched": 1})
         exact = next(x for x in result["records"] if x.get("street") == "вул. Жиліна")
         self.assertEqual(exact["status"], "exact")
         self.assertEqual({b["id"] for b in exact["links"]}, {"3"})
@@ -236,10 +236,7 @@ class AddressMatchingTests(unittest.TestCase):
             dtek("с-ще Бородянка", "вул. Заводська", ["1А"]),
             dtek("смт Бородянка", "вул. Ветеранів", ["1A"]),
         ], buildings)
-        self.assertEqual(report["counts"], {
-            "exact": 1,
-            "candidate_house_format": 1,
-        })
+        self.assertEqual(report["counts"], {"exact": 2})
         self.assertTrue(all("links" in r for r in report["records"]))
         self.assertEqual(report["records"][0]["links"][0]["id"], "v1")
 
