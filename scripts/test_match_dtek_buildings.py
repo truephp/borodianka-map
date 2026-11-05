@@ -309,14 +309,32 @@ class AddressMatchingTests(unittest.TestCase):
         self.assertEqual(report["counts"], {"unmatched": 1})
         self.assertEqual(report["records"][0]["links"], [])
 
-    def test_same_address_osm_and_visicom_can_both_be_confirmed(self):
+    def test_same_address_osm_and_visicom_remains_ambiguous(self):
         buildings = list(address_records({"features": [
             feature("osm", "1", "вул. Заводська", "3"),
             feature("visicom", "2", "вул. Заводська", "3")
         ]}))
         report = match_houses([dtek("смт Бородянка", "вул. Заводська", ["3"])], buildings)
-        self.assertEqual(report["counts"], {"exact": 1})
+        self.assertEqual(report["counts"], {"multiple": 1})
         self.assertEqual({link["id"] for link in report["records"][0]["links"]}, {"1", "2"})
+
+    def test_two_osm_polygons_with_one_address_are_confirmed(self):
+        buildings = list(address_records({"features": [
+            feature("osm", "a", "вул. Велика", "87"),
+            feature("osm", "b", "вул. Велика", "87"),
+        ]}))
+        report = match_houses([dtek("с-ще Бородянка", "вул. Велика", ["87"])], buildings)
+        self.assertEqual(report["counts"], {"exact": 1})
+        self.assertEqual({link["id"] for link in report["records"][0]["links"]}, {"a", "b"})
+
+    def test_reversed_two_word_mixed_sources_stays_ambiguous(self):
+        buildings = list(address_records({"features": [
+            feature("visicom", "v", "Тараса Шевченка", "9"),
+            feature("osm", "o", "Тараса Шевченка", "9"),
+        ]}))
+        report = match_houses([dtek("с-ще Бородянка", "вул. Шевченка Тараса", ["9"])], buildings)
+        self.assertEqual(report["counts"], {"multiple": 1})
+        self.assertEqual(report["records"][0]["matchMethod"], "reversed_two_words")
 
     def test_house_metadata_is_preserved_in_exact_match(self):
         buildings = list(address_records({"features": [
