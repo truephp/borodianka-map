@@ -28,6 +28,7 @@ class AddressMatchingTests(unittest.TestCase):
             ("вул. Чорновола В’ячеслава", "Чорновола"),
             ("вул. Хмельницького Богдана", "Богдана Хмельницького"),
             ("пров. Здвижовий", "Здвиженський"),
+            ("вул. Млинова", "Млиновий"),
         ]
         for index, (dtek_street, visicom_street) in enumerate(cases):
             with self.subTest(dtek_street=dtek_street):
