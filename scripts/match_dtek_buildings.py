@@ -35,6 +35,12 @@ def street_key(value):
     return kind, normalize_street(value)
 
 
+def reversed_two_word_street(name):
+    """Try a word-order variant only for a two-word normalized street name."""
+    words = name.split()
+    return " ".join(reversed(words)) if len(words) == 2 and words[0] != words[1] else None
+
+
 def house_key(value):
     value = unicodedata.normalize("NFKC", str(value or "")).casefold()
     return re.sub(r"\s+", "", value.replace("’", "'").replace("ʼ", "'"))
@@ -96,6 +102,7 @@ def match_houses(responses, building_records, aliases=None, roads=None, director
     typed_idx = defaultdict(list)
     name_idx = defaultdict(list)
     name_loose_idx = defaultdict(list)
+    building_names = {b["streetKey"] for b in building_records}
     for building in building_records:
         key = (building["kind"], building["streetKey"])
         typed_idx[(key, building["houseKey"])].append(building)
@@ -149,6 +156,41 @@ def match_houses(responses, building_records, aliases=None, roads=None, director
                     matches = loose
                 else:
                     status, matches = "unmatched", []
+            # Fallback for two-word street names only. Never override an existing
+            # original-name street, or downgrade a normal candidate to a guess.
+            # The usual number, street/lane type, and ambiguity checks still apply.
+            match_method = "normal"
+            if status == "unmatched" and street_name not in building_names:
+                swapped = reversed_two_word_street(street_name)
+                if swapped:
+                    swapped_same = name_idx.get((swapped, hkey), [])
+                    swapped_kinds = kinds.get(swapped, set()) | available_kinds
+                    swapped_ambiguous = len(swapped_kinds) > 1
+                    swapped_compatible = [b for b in swapped_same
+                                          if b["kind"] is None or b["kind"] == street_type]
+                    swapped_conflicting = [b for b in swapped_same
+                                           if b["kind"] and b["kind"] != street_type]
+                    if swapped_same:
+                        if swapped_conflicting or swapped_ambiguous or not street_type:
+                            status, matches = "candidate_street_type", swapped_same
+                        elif len(swapped_compatible) == 1:
+                            status, matches = "exact", swapped_compatible
+                        elif len(swapped_compatible) > 1:
+                            status, matches = "multiple", swapped_compatible
+                        else:
+                            status, matches = "candidate_street_type", swapped_same
+                    else:
+                        swapped_loose = name_loose_idx.get(
+                            (swapped, house_candidate_key(house)), [])
+                        if swapped_loose:
+                            status = ("candidate_house_format"
+                                      if street_type and not swapped_ambiguous
+                                      and all(b["kind"] in (None, street_type)
+                                              for b in swapped_loose)
+                                      else "candidate_street_and_house_format")
+                            matches = swapped_loose
+                    if status != "unmatched":
+                        match_method = "reversed_two_words"
             counts[status] += 1
             source_data = entry["response"].get("data")
             # The data dictionary keys are original house numbers; normalized
@@ -163,7 +205,7 @@ def match_houses(responses, building_records, aliases=None, roads=None, director
                         ) if k in payload}
                         break
             out.append({"city": city, "street": street, "house": house, "status": status,
-                        "dtek": house_fields,
+                        "dtek": house_fields, "matchMethod": match_method,
                         "links": [{"source": b["source"], "id": b["id"],
                                    "street": b["street"], "house": b["house"]} for b in matches]})
     return {"schemaVersion": 2, "counts": dict(counts), "records": out}
