@@ -678,7 +678,7 @@ function dtekPresenceDraw(){
    layer.bindPopup(div);
   }
  }).addTo(dtekPresenceLayer);
- dtekPresenceStatus.textContent='Підсвічено '+mapped+' контурів: '+exactCount+' однозначних, '+candidateCount+' кандидатів. Усього адресних записів зі збігами: '+dtekPresenceRecords.length+'.';
+ dtekPresenceStatus.textContent='Підсвічено '+mapped+' контурів: '+exactCount+' підтверджених, '+candidateCount+' кандидатів. Усього адресних записів зі збігами: '+dtekPresenceRecords.length+'.';
 }
 dtekPresenceEnable.addEventListener('change',dtekPresenceDraw);
 
