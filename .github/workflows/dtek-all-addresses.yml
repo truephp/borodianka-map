@@ -9,9 +9,16 @@ on:
       - 'scripts/match_dtek_buildings.py'
       - 'scripts/test_match_dtek_buildings.py'
   workflow_dispatch:
+  schedule:
+    # Every hour at minute 17 UTC; avoid GitHub Actions top-of-hour congestion.
+    - cron: '17 * * * *'
 
 permissions:
   contents: read
+
+concurrency:
+  group: dtek-all-addresses
+  cancel-in-progress: false
 
 jobs:
   import-and-match:
