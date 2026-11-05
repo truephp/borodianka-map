@@ -64,6 +64,12 @@ def address_records(collection, source_override=None):
         if not key:
             continue
         source = source_override or p.get("source") or "osm"
+        # Visicom adr_address exposes a separate street_type field; previously
+        # our imported address only contained a bare street name.
+        if source == "visicom" and p.get("street_type"):
+            explicit_kind, _ = street_key(str(p["street_type"]).strip() + " " + str(street))
+            if explicit_kind:
+                kind = explicit_kind
         identifier = p.get("sourceId") or p.get("visicomId") or p.get("id")
         if identifier is None:
             continue
