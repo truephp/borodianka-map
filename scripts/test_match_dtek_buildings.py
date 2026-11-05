@@ -68,7 +68,7 @@ class AddressMatchingTests(unittest.TestCase):
             feature("visicom", "c", "вулиця Тараса Шевченка", "9"),
         ]}))
         report = match_houses([dtek("с-ще Бородянка", "вул. Шевченка Тараса", ["8", "9"])], buildings)
-        self.assertEqual(report["counts"], {"unmatched": 1, "multiple": 1})
+        self.assertEqual(report["counts"], {"unmatched": 1, "exact": 1})
 
     def test_reverse_not_applied_to_three_word_names(self):
         buildings = list(address_records({"features": [
@@ -275,7 +275,7 @@ class AddressMatchingTests(unittest.TestCase):
         ], buildings, directory=directory)
         self.assertEqual(report["counts"], {"candidate_street_type": 1})
 
-    def test_two_bare_visicom_polygons_same_address_ambiguous(self):
+    def test_two_visicom_polygons_with_same_address_are_both_confirmed(self):
         buildings = list(address_records({"features": [
             feature("visicom", "v1", "Центральна", "427а"),
             feature("visicom", "v2", "Центральна", "427А"),
@@ -283,7 +283,21 @@ class AddressMatchingTests(unittest.TestCase):
         report = match_houses([
             dtek("с-ще Бородянка", "вул. Центральна", ["427а"])
         ], buildings)
-        self.assertEqual(report["counts"], {"multiple": 1})
+        self.assertEqual(report["counts"], {"exact": 1})
+        self.assertEqual({link["id"] for link in report["records"][0]["links"]}, {"v1", "v2"})
+
+    def test_velyka_87_multiple_visicom_contours_single_address(self):
+        buildings = list(address_records({"features": [
+            feature("visicom", "ADR3K0MZV5EH5PTGSJ", "Велика", "87"),
+            feature("visicom", "ADR3K0MZV5EHJQKK9", "Велика", "87"),
+        ]}))
+        report = match_houses([
+            dtek("с-ще Бородянка", "вул. Велика", ["87"])
+        ], buildings)
+        self.assertEqual(report["counts"], {"exact": 1})
+        self.assertEqual(len(report["records"][0]["links"]), 2)
+        self.assertEqual({link["id"] for link in report["records"][0]["links"]},
+                         {"ADR3K0MZV5EH5PTGSJ", "ADR3K0MZV5EHJQKK9"})
 
     def test_explicit_type_conflict_not_confirmed(self):
         buildings = list(address_records({"features": [
@@ -295,13 +309,14 @@ class AddressMatchingTests(unittest.TestCase):
         self.assertEqual(report["counts"], {"unmatched": 1})
         self.assertEqual(report["records"][0]["links"], [])
 
-    def test_duplicates_are_not_exact(self):
+    def test_same_address_osm_and_visicom_can_both_be_confirmed(self):
         buildings = list(address_records({"features": [
             feature("osm", "1", "вул. Заводська", "3"),
             feature("visicom", "2", "вул. Заводська", "3")
         ]}))
         report = match_houses([dtek("смт Бородянка", "вул. Заводська", ["3"])], buildings)
-        self.assertEqual(report["counts"], {"multiple": 1})
+        self.assertEqual(report["counts"], {"exact": 1})
+        self.assertEqual({link["id"] for link in report["records"][0]["links"]}, {"1", "2"})
 
     def test_house_metadata_is_preserved_in_exact_match(self):
         buildings = list(address_records({"features": [
