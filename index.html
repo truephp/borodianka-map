@@ -636,10 +636,15 @@ function dtekPresenceDraw(){
  }
  const lookup=new Map();
  for(const record of dtekPresenceRecords){
+  const decision=dtekReviewDecisions.get(dtekReviewKey(record));
+  if(decision?.action==='reject')continue;
+  const selected=decision?.action==='confirm'?
+   new Set(dtekReviewConfirmedLinks(decision).map(dtekReviewLinkKey)):null;
   for(const link of record.links||[]){
-   const key=link.source+':'+String(link.id);
+   const key=dtekReviewLinkKey(link);
+   if(selected&&!selected.has(key))continue;
    if(!lookup.has(key))lookup.set(key,{link,records:[]});
-   lookup.get(key).records.push(record);
+   lookup.get(key).records.push({record,confirmed:decision?.action==='confirm'||record.status==='exact'});
   }
  }
  let mapped=0,exactCount=0,candidateCount=0;
@@ -649,7 +654,7 @@ function dtekPresenceDraw(){
   const feature=dtekReviewFeature(item.link);
   if(!feature)continue;
   mapped++;
-  const confirmed=item.records.every(r=>r.status==='exact')&&item.records.length===1;
+  const confirmed=item.records.every(entry=>entry.confirmed);
   if(confirmed)exactCount++;else candidateCount++;
   features.push(feature);
   descriptions.set(feature,{key,confirmed,records:item.records,link:item.link});
@@ -665,9 +670,11 @@ function dtekPresenceDraw(){
    const div=document.createElement('div'),strong=document.createElement('strong');
    strong.textContent=[d.link.street,d.link.house].filter(Boolean).join(', ')||'Будівля ДТЕК';
    div.append(strong,document.createElement('br'),document.createTextNode(d.link.source+' #'+d.link.id));
-   for(const record of d.records){
-    const p=document.createElement('p');
-    p.textContent=[record.city,record.street,record.house].join(', ')+' · '+(dtekStatusLabels[record.status]||record.status);
+   for(const entry of d.records){
+    const record=entry.record,p=document.createElement('p');
+    p.textContent=[record.city,record.street,record.house].join(', ')+' · '+
+     (dtekReviewDecisions.get(dtekReviewKey(record))?.action==='confirm'?'confirmed':
+      dtekStatusLabels[record.status]||record.status);
     div.append(p);
     appendDtekFields(div,record);
    }
