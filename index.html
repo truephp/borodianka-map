@@ -68,6 +68,8 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.19.0/dist/leaflet-geoman.js"></script><script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
 <script>
 const map=L.map('map',{preferCanvas:true,zoomControl:false,maxBoundsViscosity:1}).setView([50.648935,29.9208565],14);
+// Geoman is opt-in: do not register thousands of ordinary map polygons for editing.
+if(L.PM?.setOptIn)L.PM.setOptIn(true);
 L.control.zoom({position:'bottomright'}).addTo(map);
 const osmTiles=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
 const visicomTiles=L.tileLayer('https://tms{s}.visicom.ua/2.0.0/planet3/base/{z}/{x}/{y}.png',{maxZoom:19,subdomains:'123',tms:true,attribution:'Map data &copy; <a href="https://api.visicom.ua/">Visicom</a>'});
@@ -329,7 +331,7 @@ visicomPasswordInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preven
 restoreVisicomCache();
 document.getElementById('visicomImport').addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file)return;const info=document.getElementById('visicomImportStatus');try{if(file.size>25e6)throw Error('Максимум 25 MB');let json=JSON.parse(await file.text());const envelope=json.version===1&&json.kdf==='PBKDF2-SHA256'?json:null;
 if(envelope){json=await decryptVisicomFile(envelope,visicomPasswordInput.value);rememberVisicomPassword(visicomPasswordInput.value);}else if(!Array.isArray(json))throw Error('Потрібен зашифрований JSON із GitHub Actions');
-if(json.type==='FeatureCollection'&&Array.isArray(json.features)){const count=applyVisicomFeatures(json);if(envelope){try{await cacheVisicomFile(envelope);}catch(err){info.textContent='Завантажено '+count+' полігонів, але кеш недоступний: '+err.message;return;}}info.textContent='Додано '+count+' полігонів. Унікальних Visicom: '+visicomPolygonMap.size+'.'+(envelope?' Зашифрований файл збережено в браузері.':'');return;}const entries=Array.isArray(json)?json:json.matches;if(!Array.isArray(entries))throw Error('Потрібен масив [{osmId,candidates:[{street,name,dist_meters}]}]');const next=new Map(),failed=new Set();for(const entry of entries){const id=String(entry.osmId??entry.osm_id??'');if(!/^\d+$/.test(id)||!Array.isArray(entry.candidates))throw Error('Некоректний osmId або candidates');if(entry.status==='failed')failed.add(id);next.set(id,entry.candidates.slice(0,20).filter(c=>c&&typeof c==='object').map(c=>({street:String(c.street??'').slice(0,120),name:String(c.name??c.number??'').slice(0,40),dist_meters:Number(c.dist_meters)})));}comparisonData=next;comparisonFailed=failed;refreshVisicomLegend();scheduleRender();info.textContent='Завантажено локально '+next.size+' наборів кандидатів. Дані не публікуються.';if(selectedBuilding!=null){const selected=buildingData?.features.find(f=>String(f.properties.id)===String(selectedBuilding));if(selected)drawCandidates(selected.properties)}}catch(error){info.textContent='Помилка JSON: '+error.message;}e.target.value='';});document.getElementById('closeInspect').onclick=()=>{selectedBuilding=null;inspectCard.hidden=true;scheduleRender()};document.getElementById('copyInspect').onclick=()=>{if(selectedCoords&&navigator.clipboard?.writeText)navigator.clipboard.writeText(selectedCoords.join(', '))};inspectToggle.addEventListener('change',()=>{if(inspectToggle.checked){document.getElementById('showBuildings').checked=true;if(map.getZoom()<16)map.setZoom(16)}else{selectedBuilding=null;inspectCard.hidden=true}scheduleRender()});// Manual OSM address overrides belong to a polygon, not to OSM itself.
+if(json.type==='FeatureCollection'&&Array.isArray(json.features)){const count=applyVisicomFeatures(json);if(envelope){try{await cacheVisicomFile(envelope);}catch(err){info.textContent='Завантажено '+count+' полігонів, але кеш недоступний: '+err.message;return;}}info.textContent='Додано '+count+' полігонів. Унікальних Visicom: '+visicomPolygonMap.size+'.'+(envelope?' Зашифрований файл збережено в браузері.':'');return;}const entries=Array.isArray(json)?json:json.matches;if(!Array.isArray(entries))throw Error('Потрібен масив [{osmId,candidates:[{street,name,dist_meters}]}]');const next=new Map(),failed=new Set();for(const entry of entries){const id=String(entry.osmId??entry.osm_id??'');if(!/^\d+$/.test(id)||!Array.isArray(entry.candidates))throw Error('Некоректний osmId або candidates');if(entry.status==='failed')failed.add(id);next.set(id,entry.candidates.slice(0,20).filter(c=>c&&typeof c==='object').map(c=>({street:String(c.street??'').slice(0,120),name:String(c.name??c.number??'').slice(0,40),dist_meters:Number(c.dist_meters)})));}comparisonData=next;comparisonFailed=failed;refreshVisicomLegend();scheduleRender();info.textContent='Завантажено локально '+next.size+' наборів кандидатів. Дані не публікуються.';if(selectedBuilding!=null){const selected=buildingData?.features.find(f=>String(f.properties.id)===String(selectedBuilding));if(selected)drawCandidates(selected.properties)}}catch(error){info.textContent='Помилка JSON: '+error.message;}e.target.value='';});document.getElementById('closeInspect').onclick=()=>{osmGeomDiscardEditor();selectedBuilding=null;inspectCard.hidden=true;scheduleRender()};document.getElementById('copyInspect').onclick=()=>{if(selectedCoords&&navigator.clipboard?.writeText)navigator.clipboard.writeText(selectedCoords.join(', '))};inspectToggle.addEventListener('change',()=>{if(inspectToggle.checked){document.getElementById('showBuildings').checked=true;if(map.getZoom()<16)map.setZoom(16)}else{selectedBuilding=null;inspectCard.hidden=true}scheduleRender()});// Manual OSM address overrides belong to a polygon, not to OSM itself.
 const osmAddressOverrides=new Map(),osmOriginalAddresses=new Map();
 const osmAddressChoices=document.getElementById('osmAddressChoices');
 const osmAddressEditStatus=document.getElementById('osmAddressEditStatus');
@@ -412,7 +414,124 @@ function osmAddressApply(feature,addresses,includeOriginal){
  p.addresses=normalized;
  osmAddressOverrides.set(id,{osmId:id,includeOriginal:!!includeOriginal,addresses:normalized});
 }
+// Geometry editing is strictly opt-in and limited to the selected OSM polygon.
+// The exported patch preserves OSM IDs, while the original GeoJSON stays intact
+// until the user explicitly applies the edit.
+const osmGeomGroup=L.layerGroup().addTo(map);
+const osmGeomStatus=document.getElementById('osmGeomStatus');
+const osmGeomOriginal=new Map(),osmGeomPatches=new Map();
+let osmGeomLayer=null,osmGeomFeatureId=null,osmGeomMode=null;
+function osmGeomStopMode(){
+ if(!osmGeomLayer?.pm)return;
+ if(osmGeomLayer.pm.enabled())osmGeomLayer.pm.disable();
+ if(osmGeomLayer.pm.layerDragEnabled())osmGeomLayer.pm.disableLayerDrag();
+ if(osmGeomLayer.pm.rotateEnabled())osmGeomLayer.pm.disableRotate();
+ osmGeomMode=null;
+}
+function osmGeomDiscardEditor(){
+ osmGeomStopMode();
+ osmGeomGroup.clearLayers();
+ osmGeomLayer=null;osmGeomFeatureId=null;
+}
+function osmGeomEnsureEditor(){
+ const feature=osmBuildingById(selectedBuilding);
+ if(!feature)return osmGeomStatus.textContent='Спочатку вибери контур OSM на карті.',false;
+ if(!['Polygon','MultiPolygon'].includes(feature.geometry?.type))
+  return osmGeomStatus.textContent='Цей Feature не є полігоном.',false;
+ if(!L.PM?.setOptIn)return osmGeomStatus.textContent='Leaflet-Geoman не завантажився. Перевір з’єднання.',false;
+ const id=String(feature.properties.id);
+ if(osmGeomLayer&&osmGeomFeatureId===id)return true;
+ osmGeomDiscardEditor();
+ const group=L.geoJSON(feature,{
+  pmIgnore:false,
+  style:{color:'#22d3ee',weight:3,fillColor:'#22d3ee',fillOpacity:.18},
+  onEachFeature:(_feature,layer)=>{layer.options.pmIgnore=false;}
+ });
+ const layer=group.getLayers()[0];
+ if(!layer)return osmGeomStatus.textContent='Не вдалося відкрити полігон для редагування.',false;
+ osmGeomGroup.addLayer(layer);
+ osmGeomLayer=layer;osmGeomFeatureId=id;
+ if(!osmGeomLayer.pm){
+  osmGeomDiscardEditor();
+  return osmGeomStatus.textContent='Редактор геометрії недоступний для цього контуру.',false;
+ }
+ return true;
+}
+function osmGeomSetMode(mode){
+ if(!osmGeomEnsureEditor())return;
+ osmGeomStopMode();
+ if(mode==='vertices'){
+  osmGeomLayer.pm.enable({snappable:false,allowSelfIntersection:false,
+   removeLayerBelowMinVertexCount:false});
+ }else if(mode==='drag'){
+  osmGeomLayer.pm.enableLayerDrag();
+ }else if(mode==='rotate'){
+  osmGeomLayer.pm.enableRotate();
+ }
+ osmGeomMode=mode;
+ const label={vertices:'Редагуй вершини контуру',drag:'Перетягни весь контур',
+  rotate:'Поверни контур за допомогою маркерів'}[mode];
+ osmGeomStatus.textContent=label+'. Потім натисни «Застосувати» або «Скасувати».';
+}
+document.getElementById('osmGeomVertices').addEventListener('click',()=>osmGeomSetMode('vertices'));
+document.getElementById('osmGeomMove').addEventListener('click',()=>osmGeomSetMode('drag'));
+document.getElementById('osmGeomRotate').addEventListener('click',()=>osmGeomSetMode('rotate'));
+document.getElementById('osmGeomStop').addEventListener('click',()=>{
+ osmGeomStopMode();osmGeomStatus.textContent='Редагування призупинено. Можна застосувати або скасувати правки.';
+});
+document.getElementById('osmGeomApply').addEventListener('click',()=>{
+ if(!osmGeomLayer||!osmGeomFeatureId){
+  osmGeomStatus.textContent='Спочатку вибери режим редагування.';return;
+ }
+ osmGeomStopMode();
+ const source=osmBuildingById(osmGeomFeatureId);
+ const geometry=osmGeomLayer.toGeoJSON().geometry;
+ if(!source||!['Polygon','MultiPolygon'].includes(geometry?.type)){
+  osmGeomStatus.textContent='Некоректна геометрія — правки не застосовано.';return;
+ }
+ try{
+  if(typeof turf!=='undefined'&&typeof turf.kinks==='function'&&
+     turf.kinks({type:'Feature',geometry,properties:{}}).features.length)
+   throw Error('Полігон має самоперетини — виправ вершини');
+ }catch(e){
+  osmGeomStatus.textContent='Правки не застосовано: '+e.message;return;
+ }
+ const id=String(source.properties.id);
+ if(!osmGeomOriginal.has(id))osmGeomOriginal.set(id,structuredClone(source.geometry));
+ source.geometry=structuredClone(geometry);
+ osmGeomPatches.set(id,{source:'osm',id,geometry:structuredClone(geometry)});
+ osmGeomDiscardEditor();
+ osmGeomStatus.textContent='Геометрію OSM #'+id+' застосовано локально. Патчів: '+osmGeomPatches.size+
+  '. Для збереження експортуй JSON.';
+ scheduleRender();
+});
+document.getElementById('osmGeomCancel').addEventListener('click',()=>{
+ osmGeomDiscardEditor();
+ osmGeomStatus.textContent='Незастосовані зміни геометрії скасовано.';
+});
+document.getElementById('osmGeomReset').addEventListener('click',()=>{
+ const feature=osmBuildingById(selectedBuilding);if(!feature)return;
+ const id=String(feature.properties.id),original=osmGeomOriginal.get(id);
+ osmGeomDiscardEditor();
+ if(original)feature.geometry=structuredClone(original);
+ osmGeomOriginal.delete(id);osmGeomPatches.delete(id);
+ osmGeomStatus.textContent='Контур відновлено до вихідної геометрії. Патчів: '+osmGeomPatches.size;
+ scheduleRender();
+});
+document.getElementById('osmGeomExport').addEventListener('click',()=>{
+ const data={schemaVersion:1,source:'borodianka-osm-geometry-overrides',
+  createdAt:new Date().toISOString(),patches:[...osmGeomPatches.values()]};
+ const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+ const url=URL.createObjectURL(blob),a=document.createElement('a');
+ a.href=url;a.download='borodianka-osm-geometry-overrides.json';a.click();
+ setTimeout(()=>URL.revokeObjectURL(url),1000);
+ osmGeomStatus.textContent='Експортовано '+osmGeomPatches.size+' геометричних правок. Вихідні дані OSM у GitHub не змінено.';
+});
 function inspectFeature(f,l){
+ if(String(selectedBuilding)!==String(f.properties.id)){
+  osmGeomDiscardEditor();
+  osmGeomStatus.textContent='Вибери режим, щоб редагувати цей контур.';
+ }
  selectedBuilding=f.properties.id;
  const center=l.getBounds().getCenter();
  selectedCoords=[center.lat.toFixed(6),center.lng.toFixed(6)];
