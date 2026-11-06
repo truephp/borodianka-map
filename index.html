@@ -27,6 +27,10 @@
 .dtek-review .dtek-actions button{min-width:0;width:100%;white-space:normal;text-align:center;line-height:1.35;padding:9px 7px}
 .dtek-review .dtek-actions button:first-child{grid-column:1/-1}
 .dtek-review .dtek-export{display:block;width:100%;margin:13px 0 10px;text-align:center}
+.setting-section[data-section="backup"] #dtekReviewExport,.setting-section[data-section="backup"] #osmAddressGeojsonExport{display:block;width:100%;margin:10px 0;text-align:center}
+.setting-section[data-section="backup"] .backup-import-label{display:block;margin:12px 0}
+.setting-section[data-section="backup"] input[type=file]{display:block;max-width:100%;width:100%;margin:8px 0;color:#afc1d9}
+.setting-section[data-section="backup"] input[type=file]::file-selector-button{background:#263b56;color:white;border:1px solid #48617f;border-radius:6px;padding:7px 9px;margin-right:8px;cursor:pointer}
 @media(max-width:420px){.dtek-review .dtek-actions{grid-template-columns:minmax(0,1fr)}.dtek-review .dtek-actions button:first-child{grid-column:auto}}
 
 </style></head><body><div id="map"></div>
@@ -647,15 +651,6 @@ document.getElementById('osmGeomReset').addEventListener('click',()=>{
  osmGeomStatus.textContent='Контур відновлено до вихідної геометрії. Патчів: '+osmGeomPatches.size;
  refreshEditedFeatureLayers();
 });
-document.getElementById('osmGeomExport').addEventListener('click',()=>{
- const data={schemaVersion:1,source:'borodianka-osm-geometry-overrides',
-  createdAt:new Date().toISOString(),patches:[...osmGeomPatches.values()]};
- const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
- const url=URL.createObjectURL(blob),a=document.createElement('a');
- a.href=url;a.download='borodianka-osm-geometry-overrides.json';a.click();
- setTimeout(()=>URL.revokeObjectURL(url),1000);
- osmGeomStatus.textContent='Експортовано '+osmGeomPatches.size+' геометричних правок. Вихідні дані OSM у GitHub не змінено.';
-});
 function inspectFeature(f,l){
  if(String(selectedBuilding)!==String(f.properties.id)){
   osmGeomDiscardEditor();
@@ -696,7 +691,7 @@ document.getElementById('osmAddressReset').addEventListener('click',()=>{
 });
 document.getElementById('osmAddressGeojsonExport').addEventListener('click',()=>{
  if(!buildingData?.features?.length){
-  osmAddressEditStatus.textContent='Спочатку завантаж дані будівель OSM.';
+  document.getElementById('manualBackupStatus').textContent='Спочатку завантаж дані будівель OSM.';
   return;
  }
  // The editor modifies the local OSM FeatureCollection, not the remote OSM API.
@@ -705,61 +700,7 @@ document.getElementById('osmAddressGeojsonExport').addEventListener('click',()=>
  const url=URL.createObjectURL(blob),link=document.createElement('a');
  link.href=url;link.download='borodianka-buildings-corrected.geojson';link.click();
  setTimeout(()=>URL.revokeObjectURL(url),1000);
- osmAddressEditStatus.textContent='Експортовано GeoJSON із поточними ручними змінами. Для публікації потрібно оновити data/buildings.geojson у репозиторії.';
-});
-document.getElementById('osmAddressExport').addEventListener('click',()=>{
- const data={schemaVersion:1,source:'borodianka-osm-building-address-overrides',
-  createdAt:new Date().toISOString(),overrides:[...osmAddressOverrides.values()]};
- const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
- const url=URL.createObjectURL(blob),link=document.createElement('a');
- link.href=url;link.download='borodianka-osm-address-overrides.json';link.click();
- setTimeout(()=>URL.revokeObjectURL(url),1000);
-});
-document.getElementById('osmAddressImport').addEventListener('change',async event=>{
- const file=event.target.files?.[0];if(!file)return;
- try{
-  if(file.size>2e6)throw Error('JSON завеликий (максимум 2 MB)');
-  if(!buildingData||!addressPoints)throw Error('Спочатку завантаж будівлі й адресні точки OSM');
-  const data=JSON.parse(await file.text());
-  if(data.schemaVersion!==1||data.source!=='borodianka-osm-building-address-overrides'||!Array.isArray(data.overrides))
-   throw Error('Непідтримуваний формат');
-  const changes=[],seen=new Set();
-  for(const entry of data.overrides){
-   const id=String(entry.osmId);
-   if(seen.has(id))throw Error('Повторний полігон у файлі');
-   seen.add(id);
-   const feature=osmBuildingById(id);
-   if(!feature||!Array.isArray(entry.addresses))throw Error('Полігон або адреси відсутні');
-   const original=osmOriginalPolygonAddress(feature);
-   const points=new Map(osmAddressPointsInside(feature).map(p=>[String(p.properties.id),p.properties]));
-   // Older exports only contained point IDs. Their polygon address was
-   // implicitly excluded; retain that meaning when importing them.
-   const includeOriginal=entry.includeOriginal===true;
-   if(includeOriginal&&!original)throw Error('Початкова адреса полігона відсутня');
-   const checked=[];
-   if(includeOriginal)checked.push({...original,fromPolygon:true,pointIds:[]});
-   for(const address of entry.addresses){
-    if(!address||typeof address.street!=='string'||typeof address.housenumber!=='string')
-     throw Error('Некоректна адреса');
-    const ids=Array.isArray(address.pointIds)?address.pointIds:[];
-    if(!ids.length){
-     if(!includeOriginal||!original||address.street!==original.street||address.housenumber!==original.housenumber)
-      throw Error('Адреса без OSM node не збігається з початковою адресою полігона');
-    }
-    for(const pointId of ids){
-     const p=points.get(String(pointId));
-     if(!p||p.street!==address.street||p.housenumber!==address.housenumber)
-      throw Error('Адресна точка не відповідає полігону');
-     checked.push({street:p.street,housenumber:p.housenumber,pointIds:[String(pointId)]});
-    }
-   }
-   changes.push({feature,addresses:checked,includeOriginal});
-  }
-  for(const change of changes)osmAddressApply(change.feature,change.addresses,change.includeOriginal);
-  osmAddressRefreshSelected();refreshEditedFeatureLayers();
-  osmAddressEditStatus.textContent='Імпортовано '+changes.length+' адресних рішень.';
- }catch(error){osmAddressEditStatus.textContent='Імпорт не виконано: '+error.message;}
- event.target.value='';
+ document.getElementById('manualBackupStatus').textContent='Експортовано OSM GeoJSON із застосованими правками геометрії та адрес. Це не об’єднаний набір Visicom.';
 });
 function offsetCoords(latlngs,offset){let points=latlngs.map(p=>map.latLngToLayerPoint(p));return points.map((p,i)=>{let prev=points[Math.max(0,i-1)],next=points[Math.min(points.length-1,i+1)];let dx=next.x-prev.x,dy=next.y-prev.y,len=Math.hypot(dx,dy)||1;return map.layerPointToLatLng(L.point(p.x-dy/len*offset,p.y+dx/len*offset))})}
 function color(id,side){const c=['#ffcc20','#3366bf','#a13d43'];let n=0;for(const ch of String(id))n=(n*33+ch.charCodeAt(0))>>>0;return c[(n+(side==='R'?1:0))%3]}
@@ -1569,10 +1510,12 @@ applyVisicomFeatures=function(...args){const result=oldApplyVisicomFeatures(...a
    ids:['addressMode','addressStats','showAddressPoints','pointStats','visicomColorMode','visicomLegend']},
   {id:'editor',title:'5. Редактор будівель',intro:'Увімкни вибір будівель на карті. Редагування геометрії та адрес відкривається в картці вибраної будівлі.',
    ids:['inspectBuildings']},
-  {id:'dtek',title:'6. ДТЕК — зіставлення адрес',intro:'Перевірка адрес із довідника ДТЕК, ручне підтвердження й експорт рішень.',
+  {id:'dtek',title:'6. ДТЕК — зіставлення адрес',intro:'Перевірка адрес із довідника ДТЕК та ручне підтвердження відповідностей.',
    ids:['dtekReviewSection']},
   {id:'streets',title:'7. Лінії вулиць',intro:'Демонстраційний режим вуличних сегментів. Кольори не відображають реальні відключення.',
-   ids:['showStreetColors','width','offset','centerline','streetLabels']}
+   ids:['showStreetColors','width','offset','centerline','streetLabels']},
+  {id:'backup',title:'8. Збереження та експорт',intro:'Один JSON з усіма ручними правками для резервного збереження та відновлення. GeoJSON експортує виправлені будівлі OSM без приватних даних Visicom.',
+   ids:['dtekReviewExport','dtekReviewImport','osmAddressGeojsonExport','manualBackupStatus']}
  ];
  const parent=document.getElementById('body');
  const lead=document.createElement('p');
@@ -1600,8 +1543,9 @@ applyVisicomFeatures=function(...args){const result=oldApplyVisicomFeatures(...a
    const el=document.getElementById(id);
    if(!el){console.warn('Admin control missing:',id);continue;}
    const node=el.closest('label')||el;
-   if(node.parentElement===parent)content.append(node);
-   else if(node===el&&el.parentElement===parent)content.append(el);
+   // Move existing DOM nodes, including previously nested backup controls.
+   // Reparenting retains the original listeners and does not duplicate IDs.
+   if(node.parentElement)content.append(node);
    else console.warn('Admin control was not moved:',id);
   }
   details.append(content);
