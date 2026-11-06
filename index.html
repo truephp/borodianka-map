@@ -698,7 +698,7 @@ document.getElementById('osmAddressGeojsonExport').addEventListener('click',()=>
  // Export the entire collection so every assigned address is retained.
  const blob=new Blob([JSON.stringify(currentDataset(buildingData))],{type:'application/geo+json'});
  const url=URL.createObjectURL(blob),link=document.createElement('a');
- link.href=url;link.download='borodianka-buildings-corrected.geojson';link.click();
+ link.href=url;link.download='borodianka-osm-buildings-corrected.geojson';link.click();
  setTimeout(()=>URL.revokeObjectURL(url),1000);
  document.getElementById('manualBackupStatus').textContent='Експортовано OSM GeoJSON із застосованими правками геометрії та адрес. Це не об’єднаний набір Visicom.';
 });
@@ -1461,16 +1461,26 @@ function applyCombinedDtekPatches(changes){
 document.getElementById('dtekReviewImport').addEventListener('change',async e=>{
  const file=e.target.files?.[0];if(!file)return;
  try{
-  if(!dtekReviewRecords.length)throw Error('Спочатку завантаж зашифрований звіт ДТЕК.');
   if(file.size>10e6)throw Error('Файл правок завеликий (максимум 10 MB)');
-  const payload=JSON.parse(await file.text());
-  if(payload.schemaVersion!==1||payload.source!=='manual-dtek-borodianka-review'||!Array.isArray(payload.decisions))throw Error('Непідтримуваний файл рішень');
+  const input=JSON.parse(await file.text());
+  // Accept the former separate geometry and address JSON exports, too.
+  let payload=input;
+  if(input?.schemaVersion===1&&input.source==='borodianka-osm-geometry-overrides')
+   payload={schemaVersion:1,source:'manual-dtek-borodianka-review',decisions:[],
+    geometryPatches:input.patches||[],addressOverrides:[]};
+  else if(input?.schemaVersion===1&&input.source==='borodianka-osm-building-address-overrides')
+   payload={schemaVersion:1,source:'manual-dtek-borodianka-review',decisions:[],
+    geometryPatches:[],addressOverrides:input.overrides||[]};
+  if(payload?.schemaVersion!==1||payload.source!=='manual-dtek-borodianka-review'||!Array.isArray(payload.decisions))
+   throw Error('Непідтримуваний формат JSON');
+  if(payload.decisions.length&&!dtekReviewRecords.length)
+   throw Error('Для відновлення рішень ДТЕК спочатку завантаж зашифрований звіт. Геометричні правки можна імпортувати без ДТЕК.');
   const patchChanges=validateCombinedDtekPatches(payload);
   const records=new Map(dtekReviewRecords.map(r=>[dtekReviewKey(r),r]));
   const restored=new Map();
   for(const item of payload.decisions){
    const key=JSON.stringify([item.city,item.street,item.house]),r=records.get(key);
-   if(!r)continue;
+   if(!r)throw Error('Адреса ДТЕК відсутня в поточному звіті: '+[item.city,item.street,item.house].join(', '));
    if(item.action==='reject')restored.set(key,{action:'reject'});
    else if(item.action==='confirm'){
     // Accept legacy single-contour exports and new multi-contour exports.
@@ -1480,17 +1490,23 @@ document.getElementById('dtekReviewImport').addEventListener('change',async e=>{
     const links=candidates.filter(l=>l&&allowed.has(dtekReviewLinkKey(l)))
       .map(l=>({source:l.source,id:String(l.id)}));
     if(links.length&&links.length===candidates.length)restored.set(key,{action:'confirm',links});
+    else throw Error('Контури рішення ДТЕК змінилися: '+[item.street,item.house].join(', '));
    }
   }
   applyCombinedDtekPatches(patchChanges);
-  dtekReviewDecisions=restored;
+  // Geometry-only imports must not erase existing DTEK decisions.
+  if(payload.decisions.length||dtekReviewRecords.length)dtekReviewDecisions=restored;
   const record=dtekReviewGetRecord();
   dtekReviewSelectedLinks=new Set(dtekReviewConfirmedLinks(record&&restored.get(dtekReviewKey(record))).map(dtekReviewLinkKey));
   dtekReviewCount();dtekReviewDisplay();dtekPresenceDraw();
-  dtekReviewDecisionStatus.textContent='Відновлено '+restored.size+' рішень ДТЕК, '+
+  const message='Відновлено '+restored.size+' рішень ДТЕК, '+
    patchChanges.geomChanges.length+' геометричних та '+patchChanges.addressChanges.length+
    ' адресних правок. Для збереження наступних змін експортуй JSON.';
- }catch(err){dtekReviewDecisionStatus.textContent='Не вдалося імпортувати рішення: '+err.message;}
+  dtekReviewDecisionStatus.textContent=message;
+  document.getElementById('manualBackupStatus').textContent=message;
+ }catch(err){
+  document.getElementById('manualBackupStatus').textContent='Не вдалося імпортувати правки: '+err.message;
+ }finally{e.target.value='';}
 });
 // Restore highlighting when private unified buildings are loaded later.
 const oldApplyVisicomFeatures=applyVisicomFeatures;
