@@ -291,7 +291,11 @@ function isConflictVisicom(id){return (visicomPartners.get(String(id))||[]).leng
 function isConflictOSM(id){return (osmPartners.get(String(id))||[]).length>1||(osmPartners.get(String(id))||[]).some(e=>(visicomPartners.get(e.visicomId)||[]).length>1)}
 function conflictText(edges,side){return edges.map(e=>(side==='osm'?'Visicom '+e.visicomId:'OSM '+e.osmId)+' · IoU '+e.iou.toFixed(2)+' · перекриття '+e.overlap.toFixed(2)).join(' | ')}
 document.getElementById('showGeometryConflicts').addEventListener('change',()=>{if(document.getElementById('showGeometryConflicts').checked)selectIndependentOsm();renderVisicomPolygons();scheduleRender()});
-function renderVisicomPolygons(){visicomPolygonsGroup.clearLayers();if(!visicomPolygons||(!showVisicomPolygons.checked&&!isUnified()))return;L.geoJSON({type:'FeatureCollection',features:(currentDataset(visicomPolygons)?.features||[]).filter(inSettlement)},{style:f=>{const status=document.getElementById('showGeometryMatches').checked;const conflict=document.getElementById('showGeometryConflicts').checked&&isConflictVisicom(f.properties.visicomId);const c=isUnified()?'#8b5cf6':conflict?'#ef4444':status?(geometryColors[geometryVisicomClasses.get(String(f.properties.visicomId))||'none']):'#a78bfa';return {color:c,weight:conflict?3:1.6,fillColor:c,fillOpacity:isUnified()?.65:.27}},onEachFeature:(f,layer)=>{const p=f.properties||{},div=document.createElement('div'),strong=document.createElement('strong');strong.textContent=[p.street,p.name].filter(Boolean).join(', ')||'Visicom';div.append(strong,document.createElement('br'),document.createTextNode('Visicom ID: '+String(p.visicomId||'')+' · '+f.geometry.type));const edges=visicomPartners.get(String(p.visicomId))||[];if(edges.length)div.append(document.createElement('br'),document.createTextNode('Відповідники: '+conflictText(edges,'visicom')));layer.bindPopup(div)}}).addTo(visicomPolygonsGroup)}
+function renderVisicomPolygons(){visicomPolygonsGroup.clearLayers();if(!visicomPolygons||(!showVisicomPolygons.checked&&!isUnified()))return;L.geoJSON({type:'FeatureCollection',features:(currentDataset(visicomPolygons)?.features||[]).filter(inSettlement)},{style:f=>{const status=document.getElementById('showGeometryMatches').checked;const conflict=document.getElementById('showGeometryConflicts').checked&&isConflictVisicom(f.properties.visicomId);const c=isUnified()?'#8b5cf6':conflict?'#ef4444':status?(geometryColors[geometryVisicomClasses.get(String(f.properties.visicomId))||'none']):'#a78bfa';return {color:c,weight:conflict?3:1.6,fillColor:c,fillOpacity:isUnified()?.65:.27}},onEachFeature:(f,layer)=>{const p=f.properties||{},div=document.createElement('div'),strong=document.createElement('strong');strong.textContent=[p.street,p.name].filter(Boolean).join(', ')||'Visicom';div.append(strong,document.createElement('br'),document.createTextNode('Visicom ID: '+String(p.visicomId||'')+' · '+f.geometry.type));const edges=visicomPartners.get(String(p.visicomId))||[];if(edges.length)div.append(document.createElement('br'),document.createTextNode('Відповідники: '+conflictText(edges,'visicom')));layer.bindPopup(()=>{
+ const popup=div.cloneNode(true);
+ appendDtekPopupForBuilding(popup,'visicom',p.visicomId);
+ return popup;
+})}}).addTo(visicomPolygonsGroup)}
 
 // Persist ONLY the encrypted user-supplied export in IndexedDB (localStorage is too small).
 const visicomCacheDb='borodianka-visicom-cache',visicomCacheStore='imports';
@@ -1058,7 +1062,11 @@ L.geoJSON(isUnified()?{type:'FeatureCollection',features:(currentDataset(premerg
 const p=f.properties;if(inspectToggle.checked)l.on('click',()=>inspectFeature(f,l));
 const div=document.createElement('div');
 const bold=document.createElement('strong');const polygonAddresses=osmPolygonAddresses(f);bold.textContent=polygonAddresses.length?polygonAddresses.map(osmAddressText).join('; '):'Будівля без адреси';
-div.append(bold,document.createElement('br'),document.createTextNode('OSM way '+p.id+' · '+p.building+' · поки без даних ДТЕК'+(osmAddressOverrides.has(String(p.id))?' · адреси змінено вручну':'')));const edges=osmPartners.get(String(p.id))||[];if(edges.length)div.append(document.createElement('br'),document.createTextNode('Відповідники: '+conflictText(edges,'osm')));const linked=pointMatching?.get(p.id);if(linked?.length){div.append(document.createElement('br'),document.createTextNode('Адресні точки всередині: '+linked.map(x=>[x.street,x.housenumber].filter(Boolean).join(' ')).join('; ')));}if(!inspectToggle.checked)l.bindPopup(div);
+div.append(bold,document.createElement('br'),document.createTextNode('OSM way '+p.id+' · '+p.building+''+(osmAddressOverrides.has(String(p.id))?' · адреси змінено вручну':'')));const edges=osmPartners.get(String(p.id))||[];if(edges.length)div.append(document.createElement('br'),document.createTextNode('Відповідники: '+conflictText(edges,'osm')));const linked=pointMatching?.get(p.id);if(linked?.length){div.append(document.createElement('br'),document.createTextNode('Адресні точки всередині: '+linked.map(x=>[x.street,x.housenumber].filter(Boolean).join(' ')).join('; ')));}if(!inspectToggle.checked)l.bindPopup(()=>{
+ const popup=div.cloneNode(true);
+ appendDtekPopupForBuilding(popup,'osm',p.id);
+ return popup;
+});
 }}).addTo(buildingsGroup)
 }}
 let renderHandle;function scheduleRender(){cancelAnimationFrame(renderHandle);renderHandle=requestAnimationFrame(()=>{render();renderArea();renderHouseNumbers()})}
@@ -1099,6 +1107,52 @@ function appendDtekFields(popup,record){
   line.append(label,document.createTextNode(': '+value));
   popup.append(line);
  }
+}
+// Build popups from the latest decrypted report, not from render-time data.
+// The same DTEK address can legitimately be linked to several polygons.
+function dtekRecordsForPolygon(source,id){
+ const key=String(source)+':'+String(id);
+ return dtekPresenceRecords.filter(record=>{
+  const decision=dtekReviewDecisions.get(dtekReviewKey(record));
+  if(decision?.action==='reject')return false;
+  const links=decision?.action==='confirm'
+   ?dtekReviewConfirmedLinks(decision):record.links||[];
+  return links.some(link=>dtekReviewLinkKey(link)===key);
+ });
+}
+function appendDtekPopupForBuilding(popup,source,id){
+ const heading=document.createElement('div');
+ heading.style.marginTop='9px';
+ const title=document.createElement('strong');
+ title.textContent='ДТЕК';
+ heading.append(title);
+ popup.append(heading);
+ if(!dtekPresenceRecords.length){
+  const message=document.createElement('div');
+  message.textContent='Звіт ДТЕК ще не завантажено або не розшифровано.';
+  popup.append(message);
+  return;
+ }
+ const records=dtekRecordsForPolygon(source,id);
+ if(!records.length){
+  const message=document.createElement('div');
+  message.textContent='Для цього контуру немає відповідності у звіті ДТЕК.';
+  popup.append(message);
+  return;
+ }
+ for(const record of records){
+  const address=document.createElement('div');
+  address.style.marginTop='7px';
+  address.textContent=[record.city,record.street,record.house].filter(Boolean).join(', ')+
+   ' · '+(dtekReviewDecisions.get(dtekReviewKey(record))?.action==='confirm'?
+    'Підтверджено вручну':dtekStatusLabels[record.status]||record.status);
+  popup.append(address);
+  appendDtekFields(popup,record);
+ }
+ const foot=document.createElement('small');
+ foot.textContent='Дані ДТЕК: '+(dtekSourceFetchedAt||'дата невідома')+
+  '. Порожні поля не означають, що світло є.';
+ popup.append(foot);
 }
 const dtekMatchStatuses=new Set(['exact','confirmed','multiple','candidate_house_format','candidate_street_type','candidate_street_and_house_format']);
 const dtekStatusLabels={
