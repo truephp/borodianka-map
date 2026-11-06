@@ -1443,14 +1443,86 @@ document.getElementById('dtekReviewExport').addEventListener('click',()=>{
  a.href=url;a.download='borodianka-all-manual-overrides.json';a.click();
  setTimeout(()=>URL.revokeObjectURL(url),1000);
 });
+// Validate all editable OSM changes before touching the live feature view.
+// Old DTEK-only JSON exports remain valid (both new arrays are optional).
+function validateCombinedDtekPatches(payload){
+ const geometries=payload.geometryPatches??[],addresses=payload.addressOverrides??[];
+ if(!Array.isArray(geometries)||!Array.isArray(addresses))
+  throw Error('Некоректні геометричні або адресні правки');
+ if((geometries.length||addresses.length)&&!buildingData?.features)
+  throw Error('Спочатку завантаж будівлі OSM');
+ const geomChanges=[],addressChanges=[],staged=new Map(),seenGeometry=new Set(),seenAddress=new Set();
+ for(const entry of geometries){
+  if(entry?.source!=='osm'||entry.id==null||!['Polygon','MultiPolygon'].includes(entry.geometry?.type))
+   throw Error('Некоректний геометричний патч');
+  const id=String(entry.id);
+  if(seenGeometry.has(id))throw Error('Повторний полігон у геометричних патчах: '+id);
+  seenGeometry.add(id);
+  const feature=buildingData.features.find(f=>String(f.properties?.id)===id);
+  if(!feature)throw Error('Полігон OSM не знайдено: '+id);
+  try{
+   if(typeof turf!=='undefined'&&typeof turf.kinks==='function'&&
+      turf.kinks({type:'Feature',geometry:entry.geometry,properties:{}}).features.length)
+    throw Error('Геометрія має самоперетини: '+id);
+   if(typeof turf!=='undefined'&&typeof turf.area==='function'&&
+      !(turf.area({type:'Feature',geometry:entry.geometry,properties:{}})>0))
+    throw Error('Геометрія має нульову площу: '+id);
+  }catch(err){throw Error('Некоректна геометрія OSM #'+id+': '+err.message)}
+  const copy=structuredClone(entry.geometry);
+  staged.set(id,copy);
+  geomChanges.push({source:'osm',id,geometry:copy});
+ }
+ if(addresses.length&&!addressPoints?.features)
+  throw Error('Спочатку завантаж адресні точки OSM');
+ for(const entry of addresses){
+  if(entry?.osmId==null||!Array.isArray(entry.addresses))
+   throw Error('Некоректний адресний патч');
+  const id=String(entry.osmId);
+  if(seenAddress.has(id))throw Error('Повторний полігон в адресних правках: '+id);
+  seenAddress.add(id);
+  const original=buildingData.features.find(f=>String(f.properties?.id)===id);
+  if(!original)throw Error('Полігон OSM не знайдено: '+id);
+  const feature={...original,geometry:staged.get(id)||currentFeatureFrom(buildingData,'osm',id)?.geometry||original.geometry};
+  const old=osmOriginalPolygonAddress(original);
+  const includeOriginal=entry.includeOriginal===true;
+  if(includeOriginal&&!old)throw Error('Немає початкової адреси OSM #'+id);
+  const points=new Map(osmAddressPointsInside(feature).map(p=>[String(p.properties.id),p.properties]));
+  for(const address of entry.addresses){
+   if(!address||typeof address.street!=='string'||typeof address.housenumber!=='string')
+    throw Error('Некоректна адреса OSM #'+id);
+   const ids=Array.isArray(address.pointIds)?address.pointIds:[];
+   if(!ids.length&&(!includeOriginal||!old||address.street!==old.street||address.housenumber!==old.housenumber))
+    throw Error('Адреса без підтвердженої OSM-точки: '+id);
+   for(const pointId of ids){
+    const point=points.get(String(pointId));
+    if(!point||point.street!==address.street||point.housenumber!==address.housenumber)
+     throw Error('Адресна точка не відповідає контуру OSM #'+id+': '+pointId);
+   }
+  }
+  addressChanges.push({feature,addresses:entry.addresses,includeOriginal});
+ }
+ return {geomChanges,addressChanges};
+}
+function applyCombinedDtekPatches(changes){
+ if(!changes.geomChanges.length&&!changes.addressChanges.length)return;
+ osmGeomDiscardEditor();
+ for(const entry of changes.geomChanges){
+  setFeaturePatch('osm',entry.id,{geometry:entry.geometry});
+  osmGeomPatches.set(entry.id,entry);
+ }
+ for(const entry of changes.addressChanges)
+  osmAddressApply(entry.feature,entry.addresses,entry.includeOriginal);
+ refreshEditedFeatureLayers();
+}
 // Resume a previous manual review without caching sensitive addresses.
 document.getElementById('dtekReviewImport').addEventListener('change',async e=>{
  const file=e.target.files?.[0];if(!file)return;
  try{
   if(!dtekReviewRecords.length)throw Error('Спочатку завантаж зашифрований звіт ДТЕК.');
-  if(file.size>2e6)throw Error('Файл рішень завеликий');
+  if(file.size>10e6)throw Error('Файл правок завеликий (максимум 10 MB)');
   const payload=JSON.parse(await file.text());
   if(payload.schemaVersion!==1||payload.source!=='manual-dtek-borodianka-review'||!Array.isArray(payload.decisions))throw Error('Непідтримуваний файл рішень');
+  const patchChanges=validateCombinedDtekPatches(payload);
   const records=new Map(dtekReviewRecords.map(r=>[dtekReviewKey(r),r]));
   const restored=new Map();
   for(const item of payload.decisions){
@@ -1467,11 +1539,14 @@ document.getElementById('dtekReviewImport').addEventListener('change',async e=>{
     if(links.length&&links.length===candidates.length)restored.set(key,{action:'confirm',links});
    }
   }
+  applyCombinedDtekPatches(patchChanges);
   dtekReviewDecisions=restored;
   const record=dtekReviewGetRecord();
   dtekReviewSelectedLinks=new Set(dtekReviewConfirmedLinks(record&&restored.get(dtekReviewKey(record))).map(dtekReviewLinkKey));
   dtekReviewCount();dtekReviewDisplay();dtekPresenceDraw();
-  dtekReviewDecisionStatus.textContent='Відновлено '+restored.size+' рішень із файлу. Нові рішення знову потрібно експортувати.';
+  dtekReviewDecisionStatus.textContent='Відновлено '+restored.size+' рішень ДТЕК, '+
+   patchChanges.geomChanges.length+' геометричних та '+patchChanges.addressChanges.length+
+   ' адресних правок. Для збереження наступних змін експортуй JSON.';
  }catch(err){dtekReviewDecisionStatus.textContent='Не вдалося імпортувати рішення: '+err.message;}
 });
 // Restore highlighting when private unified buildings are loaded later.
