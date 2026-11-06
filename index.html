@@ -61,10 +61,6 @@
   <label class="dtek-field">Ручний імпорт звіту (необов'язково)
    <input id="dtekReviewFile" type="file" accept=".json,application/json">
   </label>
-  <label class="dtek-field">Імпорт попередніх рішень і правок
-   <input id="dtekReviewImport" type="file" accept=".json,application/json">
-  </label>
-  <button type="button" id="dtekReviewExport" class="dtek-export">Експорт усіх правок JSON (ДТЕК + геометрія + адреси)</button>
   <div id="dtekReviewDecisionStatus" class="small dtek-status">Рішення зберігаються лише в пам'яті вкладки до експорту.</div>
  </div>
 </div><label>Картографічна підкладка <select id="basemap" style="width:100%;padding:8px;background:#263b56;color:#fff;border:1px solid #48617f;border-radius:8px"><option value="osm">OpenStreetMap</option><option value="visicom">Visicom</option><option value="local">Локальна OSM (Cloudflare R2)</option></select></label><label>R2: публічна адреса набору тайлів <input id="localTilesUrl" type="url" placeholder="https://tiles.example.com/borodianka/v1" style="width:100%;padding:8px;background:#263b56;color:#fff;border:1px solid #48617f;border-radius:8px"><span class="small">Вкажи URL каталогу версії, без /{z}/{x}/{y}.webp. Збережеться лише у твоєму браузері.</span></label><label><input type="checkbox" id="compareFootprints"> Порівнювати контури OSM з підкладкою Visicom</label><p class="small" id="visicomStatus">Visicom Tiles: доступ залежить від авторизації/домену. Підкладка не надає інтерактивні полігони будівель.</p><label><input type="checkbox" id="addressMode"> Діагностика адрес OSM (зелений / жовтий / рожевий)</label><div id="addressStats" class="small"></div><label><input type="checkbox" id="showAddressPoints"> Показати окремі адресні точки OSM</label><div id="pointStats" class="small">Адресні точки: очікується імпорт.</div><label><input type="checkbox" id="showBuildings" checked> Показувати полігони OSM (блакитні)</label><label><input type="checkbox" id="showHouseNumbers" checked> Показувати номери будинків (zoom 16+)</label><label><input type="checkbox" id="showMask" checked> Ізолювати Бородянку (+120 м за контуром)</label>
@@ -73,10 +69,18 @@
 <label>Відступ: <output id="offsetOut">5</output> px <input id="offset" type="range" min="2" max="12" step="1" value="5"></label>
 <label><input type="checkbox" id="centerline"> Показати вісь дороги</label><label><input type="checkbox" id="streetLabels" checked> Підписи вулиць (на локальній OSM)</label>
 <p class="small">Тест двох незалежних ліній для кожного сегмента OSM. Кольори вигадані для перевірки читабельності, не є даними ДТЕК. Геометрія завантажена з OSM у межах селища. Лінії — лише демонстрація, не стан електропостачання.</p>
-</div></section><aside id="inspectCard" class="inspect-card" hidden><div class="row"><strong>Будівля OSM</strong><button type="button" id="closeInspect">Закрити</button></div><p id="inspectInfo"></p><p class="small">Visicom: лише картографічна підкладка. Геометрія й адресні кандидати з Data API ще не підключені. Збіг не підтверджений.</p><div id="visicomMatches"></div>
+<div id="manualBackupControls" class="backup-control-source" hidden>
+<label class="backup-import-label">Імпорт усіх правок JSON
+<input id="dtekReviewImport" type="file" accept=".json,application/json"></label>
+<button type="button" id="dtekReviewExport">Експорт усіх правок JSON</button>
+<button type="button" id="osmAddressGeojsonExport">Експорт готового GeoJSON OSM</button>
+<div id="manualBackupStatus" class="small" role="status">Усі зміни застосовуються у вкладці до експорту.</div>
+</div></div></section><aside id="inspectCard" class="inspect-card" hidden><div class="row"><strong>Будівля OSM</strong><button type="button" id="closeInspect">Закрити</button></div><p id="inspectInfo"></p><p class="small">Visicom: лише картографічна підкладка. Геометрія й адресні кандидати з Data API ще не підключені. Збіг не підтверджений.</p><div id="visicomMatches"></div>
 <div id="osmGeometryEditor" class="inspect-editor">
-<strong>Геометрія полігона OSM (тест)</strong>
-<div class="small">Вибери режим та змінюй контур. «Зупинити редагування» вимикає інструмент, не зберігаючи правки. «Застосувати» приймає нову геометрію у вкладці; для постійного збереження експортуй патч.</div>
+<strong>Геометрія полігона OSM</strong>
+<div class="small">«Застосувати» зберігає зміни лише у вкладці. Для постійного збереження скористайся розділом «Збереження та експорт».</div>
+
+
 <div class="row" style="justify-content:flex-start">
 <button type="button" id="osmGeomVertices">Вершини</button>
 <button type="button" id="osmGeomMove">Перемістити</button>
@@ -87,18 +91,16 @@
 <button type="button" id="osmGeomApply">Застосувати</button>
 <button type="button" id="osmGeomCancel">Скасувати</button>
 <button type="button" id="osmGeomReset">Скинути геометрію</button>
-<button type="button" id="osmGeomExport">Експорт патча JSON</button>
 </div>
 <div id="osmGeomStatus" class="small" role="status">Геометрію не редагували.</div>
 </div>
 <div id="osmAddressEditor" class="inspect-editor">
 <strong>Адреси полігона з внутрішніх точок OSM</strong>
-<div class="small">Вибери одну чи кілька точок. Зміни діють у поточній вкладці; експортуй JSON для збереження.</div>
+<div class="small">Зміни діють у поточній вкладці. Усі ручні правки зберігаються одним JSON у розділі «Збереження та експорт».</div>
+
 <div id="osmAddressChoices" role="group" aria-label="Адресні точки всередині полігона"></div>
 <div class="row"><button type="button" id="osmAddressApply">Застосувати адреси</button><button type="button" id="osmAddressReset">Скинути адресу</button></div>
 <div class="small" id="osmAddressEditStatus"></div>
-<div class="row"><button type="button" id="osmAddressExport">Експорт правок JSON</button><button type="button" id="osmAddressGeojsonExport">Експорт виправленого GeoJSON</button>
-<label class="small" style="margin:0">Імпорт JSON <input type="file" id="osmAddressImport" accept=".json,application/json" style="max-width:180px"></label></div>
 </div><button type="button" id="copyInspect">Копіювати координати</button></aside>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.19.0/dist/leaflet-geoman.js"></script><script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
 <script>
