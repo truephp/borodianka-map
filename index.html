@@ -1473,14 +1473,28 @@ document.getElementById('dtekReviewImport').addEventListener('change',async e=>{
     geometryPatches:[],addressOverrides:input.overrides||[]};
   if(payload?.schemaVersion!==1||payload.source!=='manual-dtek-borodianka-review'||!Array.isArray(payload.decisions))
    throw Error('Непідтримуваний формат JSON');
-  if(payload.decisions.length&&!dtekReviewRecords.length)
+  if(payload.decisions.length&&!dtekPresenceRecords.length)
    throw Error('Для відновлення рішень ДТЕК спочатку завантаж зашифрований звіт. Геометричні правки можна імпортувати без ДТЕК.');
   const patchChanges=validateCombinedDtekPatches(payload);
   const records=new Map(dtekReviewRecords.map(r=>[dtekReviewKey(r),r]));
+  const published=new Map(dtekPresenceRecords.map(r=>[dtekReviewKey(r),r]));
   const restored=new Map();
+  let alreadyPublished=0;
   for(const item of payload.decisions){
-   const key=JSON.stringify([item.city,item.street,item.house]),r=records.get(key);
+   const key=JSON.stringify([item.city,item.street,item.house]),r=records.get(key)||published.get(key);
    if(!r)throw Error('Адреса ДТЕК відсутня в поточному звіті: '+[item.city,item.street,item.house].join(', '));
+   if(r.status==='confirmed'){
+    const expected=new Set((r.links||[]).map(dtekReviewLinkKey));
+    const submitted=Array.isArray(item.links)?item.links:
+     item.source&&item.id!=null?[{source:item.source,id:item.id}]:[];
+    if(item.action!=='confirm'||submitted.length!==expected.size||
+       submitted.some(link=>!expected.has(dtekReviewLinkKey(link))))
+     throw Error('Опубліковане підтвердження ДТЕК відрізняється від файлу: '+item.street+', '+item.house);
+    alreadyPublished++;
+    continue;
+   }
+   if(!records.has(key))
+    throw Error('Адреса ДТЕК більше не доступна для ручної перевірки: '+item.street+', '+item.house);
    if(item.action==='reject')restored.set(key,{action:'reject'});
    else if(item.action==='confirm'){
     // Accept legacy single-contour exports and new multi-contour exports.
@@ -1495,11 +1509,13 @@ document.getElementById('dtekReviewImport').addEventListener('change',async e=>{
   }
   applyCombinedDtekPatches(patchChanges);
   // Geometry-only imports must not erase existing DTEK decisions.
-  if(payload.decisions.length||dtekReviewRecords.length)dtekReviewDecisions=restored;
+  if(input.source==='manual-dtek-borodianka-review'&&dtekReviewRecords.length)
+   dtekReviewDecisions=restored;
   const record=dtekReviewGetRecord();
-  dtekReviewSelectedLinks=new Set(dtekReviewConfirmedLinks(record&&restored.get(dtekReviewKey(record))).map(dtekReviewLinkKey));
+  dtekReviewSelectedLinks=new Set(dtekReviewConfirmedLinks(record&&dtekReviewDecisions.get(dtekReviewKey(record))).map(dtekReviewLinkKey));
   dtekReviewCount();dtekReviewDisplay();dtekPresenceDraw();
-  const message='Відновлено '+restored.size+' рішень ДТЕК, '+
+  const message='Відновлено '+restored.size+' рішень ДТЕК'+(alreadyPublished?
+   ' (ще '+alreadyPublished+' уже є в основному звіті)':'')+', '+
    patchChanges.geomChanges.length+' геометричних та '+patchChanges.addressChanges.length+
    ' адресних правок. Для збереження наступних змін експортуй JSON.';
   dtekReviewDecisionStatus.textContent=message;
