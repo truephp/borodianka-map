@@ -15,11 +15,12 @@ const expected=[
  ['addresses',['addressMode','showAddressPoints','visicomColorMode']],
  ['editor',['inspectBuildings']],
  ['dtek',['dtekReviewSection']],
- ['streets',['showStreetColors','width','offset','centerline','streetLabels']]
+ ['streets',['showStreetColors','width','offset','centerline','streetLabels']],
+ ['backup',['dtekReviewExport','dtekReviewImport','osmAddressGeojsonExport','manualBackupStatus']]
 ];
 const groups=[...code.matchAll(/\{id:'([^']+)',title:'([^']+)',[\s\S]*?ids:\[([^\]]+)\]\}/g)]
  .map(([,id,title,raw])=>({id,title,ids:[...raw.matchAll(/'([^']+)'/g)].map(v=>v[1])}));
-assert.equal(groups.length,7,'Expect seven workflow groups');
+assert.equal(groups.length,8,'Expect eight workflow groups');
 const seen=new Set();
 for(const [id,required] of expected){
  const g=groups.find(x=>x.id===id);
@@ -33,4 +34,9 @@ for(const [id,required] of expected){
 }
 assert(code.includes('node=el.closest(\'label\')||el'),'Move existing controls, do not clone');
 assert(code.includes('localStorage.setItem'),'Save section expand/collapse state');
-console.log('PASS: admin workflow sections have unique, existing controls');
+for(const id of ['osmGeomExport','osmAddressExport','osmAddressImport'])
+ assert(!html.includes('id="'+id+'"'),'Removed per-building export must not remain: '+id);
+const editor=html.slice(html.indexOf('id="osmGeometryEditor"'),html.indexOf('</aside>'));
+assert(!editor.includes('id="osmAddressGeojsonExport"'),'GeoJSON export belongs to backup section');
+assert(!editor.includes('id="dtekReviewExport"'),'All edits export belongs to backup section');
+console.log('PASS: eight admin groups; backup controls centralized; no obsolete per-building exports');
