@@ -1393,7 +1393,7 @@ applyVisicomFeatures=function(...args){const result=oldApplyVisicomFeatures(...a
   {id:'sources',title:'1. Джерела даних',intro:'Завантаження геоданих і доступ до зашифрованих наборів Visicom/R2.',open:true,
    ids:['visicomImport','unifiedBuildingsUrl','visicomPassword','restoreVisicomCache','visicomImportStatus','clearVisicomPolygons']},
   {id:'layers',title:'2. Шари й підкладка',intro:'Видимість об’єктів не впливає на результати імпорту чи ручні правки.',open:true,
-   ids:['basemap','localTilesUrl','visicomStatus','showMask','showBuildings','showVisicomPolygons','unifiedBuildings','showHouseNumbers','unifiedStats','streetLabels']},
+   ids:['basemap','localTilesUrl','visicomStatus','showMask','showBuildings','showVisicomPolygons','unifiedBuildings','showHouseNumbers','unifiedStats']},
   {id:'geometry',title:'3. Порівняння геометрії',intro:'Пошук геометричних відповідностей OSM ↔ Visicom за IoU та площею перекриття. Це не зіставлення адрес.',
    ids:['showGeometryMatches','iouHigh','iouMedium','iouLow','overlapThreshold','clipVisicomBoundary','showGeometryConflicts','geometryStats','conflictStats','compareFootprints']},
   {id:'addresses',title:'4. Адреси та зіставлення',intro:'Діагностика адрес OSM, внутрішні адресні точки та відповідності адресам Visicom.',
@@ -1403,7 +1403,7 @@ applyVisicomFeatures=function(...args){const result=oldApplyVisicomFeatures(...a
   {id:'dtek',title:'6. ДТЕК — зіставлення адрес',intro:'Перевірка адрес із довідника ДТЕК, ручне підтвердження й експорт рішень.',
    ids:['dtekReviewSection']},
   {id:'streets',title:'7. Лінії вулиць',intro:'Демонстраційний режим вуличних сегментів. Кольори не відображають реальні відключення.',
-   ids:['showStreetColors','width','offset','centerline']}
+   ids:['showStreetColors','width','offset','centerline','streetLabels']}
  ];
  const parent=document.getElementById('body');
  const lead=document.createElement('p');
