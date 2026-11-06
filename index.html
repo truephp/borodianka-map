@@ -61,10 +61,10 @@
   <label class="dtek-field">Ручний імпорт звіту (необов'язково)
    <input id="dtekReviewFile" type="file" accept=".json,application/json">
   </label>
-  <label class="dtek-field">Продовжити перевірку з попереднього експорту
+  <label class="dtek-field">Імпорт попередніх рішень і правок
    <input id="dtekReviewImport" type="file" accept=".json,application/json">
   </label>
-  <button type="button" id="dtekReviewExport" class="dtek-export">Експорт рішень JSON</button>
+  <button type="button" id="dtekReviewExport" class="dtek-export">Експорт усіх правок JSON (ДТЕК + геометрія + адреси)</button>
   <div id="dtekReviewDecisionStatus" class="small dtek-status">Рішення зберігаються лише в пам'яті вкладки до експорту.</div>
  </div>
 </div><label>Картографічна підкладка <select id="basemap" style="width:100%;padding:8px;background:#263b56;color:#fff;border:1px solid #48617f;border-radius:8px"><option value="osm">OpenStreetMap</option><option value="visicom">Visicom</option><option value="local">Локальна OSM (Cloudflare R2)</option></select></label><label>R2: публічна адреса набору тайлів <input id="localTilesUrl" type="url" placeholder="https://tiles.example.com/borodianka/v1" style="width:100%;padding:8px;background:#263b56;color:#fff;border:1px solid #48617f;border-radius:8px"><span class="small">Вкажи URL каталогу версії, без /{z}/{x}/{y}.webp. Збережеться лише у твоєму браузері.</span></label><label><input type="checkbox" id="compareFootprints"> Порівнювати контури OSM з підкладкою Visicom</label><p class="small" id="visicomStatus">Visicom Tiles: доступ залежить від авторизації/домену. Підкладка не надає інтерактивні полігони будівель.</p><label><input type="checkbox" id="addressMode"> Діагностика адрес OSM (зелений / жовтий / рожевий)</label><div id="addressStats" class="small"></div><label><input type="checkbox" id="showAddressPoints"> Показати окремі адресні точки OSM</label><div id="pointStats" class="small">Адресні точки: очікується імпорт.</div><label><input type="checkbox" id="showBuildings" checked> Показувати полігони OSM (блакитні)</label><label><input type="checkbox" id="showHouseNumbers" checked> Показувати номери будинків (zoom 16+)</label><label><input type="checkbox" id="showMask" checked> Ізолювати Бородянку (+120 м за контуром)</label>
@@ -1434,10 +1434,13 @@ document.getElementById('dtekReviewExport').addEventListener('click',()=>{
   city:r.city,street:r.street,house:r.house,
   initialStatus:r.status,...dtekReviewDecisions.get(dtekReviewKey(r))
  }));
- const data={schemaVersion:1,source:'manual-dtek-borodianka-review',createdAt:new Date().toISOString(),decisions:entries};
+ const data={schemaVersion:1,source:'manual-dtek-borodianka-review',
+  createdAt:new Date().toISOString(),decisions:entries,
+  geometryPatches:[...osmGeomPatches.values()],
+  addressOverrides:[...osmAddressOverrides.values()]};
  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
  const url=URL.createObjectURL(blob),a=document.createElement('a');
- a.href=url;a.download='dtek-borodianka-manual-decisions.json';a.click();
+ a.href=url;a.download='borodianka-all-manual-overrides.json';a.click();
  setTimeout(()=>URL.revokeObjectURL(url),1000);
 });
 // Resume a previous manual review without caching sensitive addresses.
