@@ -9,6 +9,7 @@ on:
       - 'scripts/match_dtek_buildings.py'
       - 'scripts/match_dtek_streets.py'
       - 'scripts/test_match_dtek_buildings.py'
+      - 'data/dtek-borodianka-manual-decisions.json'
   workflow_dispatch:
   workflow_run:
     workflows: ["Enrich Visicom street types (one-time)"]
@@ -87,6 +88,7 @@ jobs:
           python scripts/match_dtek_buildings.py \
             --dtek "$RUNNER_TEMP/dtek-borodianka-all-houses.json" \
             --visicom-encrypted "$RUNNER_TEMP/borodianka-buildings.enc.json" \
+            --manual-decisions "data/dtek-borodianka-manual-decisions.json" \
             --output "$RUNNER_TEMP/dtek-all-unified-matches.enc.json" \
             --summary "$RUNNER_TEMP/dtek-all-unified-summary.json"
       - name: Summarize all streets
