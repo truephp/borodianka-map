@@ -3,7 +3,7 @@ from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).parent))
-from match_dtek_buildings import address_records, house_candidate_key, house_key, match_houses, street_key
+from match_dtek_buildings import address_records, apply_manual_decisions, house_candidate_key, house_key, match_houses, street_key
 
 
 def feature(source, ident, street, house):
@@ -14,6 +14,65 @@ def feature(source, ident, street, house):
 def dtek(city, street, houses):
     return {"city": city, "street": street, "response":
             {"result": True, "data": {name: None for name in houses}}}
+
+
+
+class ManualDtekDecisionsTests(unittest.TestCase):
+    @staticmethod
+    def sample():
+        records = [
+            {"city": "с-ще Бородянка", "street": "вул. Семашка", "house": "3",
+             "status": "multiple", "links": [
+                 {"source": "visicom", "id": "V3", "street": "Семашка", "house": "3"},
+                 {"source": "osm", "id": "11", "street": "Семашка", "house": "3"},
+                 {"source": "osm", "id": "12", "street": "Семашка", "house": "3"},
+             ]},
+            {"city": "с-ще Бородянка", "street": "вул. Семашка", "house": "5",
+             "status": "exact", "links": [{"source": "osm", "id": "15"}]}
+        ]
+        decisions = {"schemaVersion": 1, "source": "manual-dtek-borodianka-review",
+                     "decisions": [
+                         {"city": "с-ще Бородянка", "street": "вул. Семашка",
+                          "house": "3", "action": "confirm",
+                          "links": [{"source": "osm", "id": "11"},
+                                    {"source": "visicom", "id": "V3"}]}
+                     ]}
+        return {"counts": {"multiple": 1, "exact": 1}, "records": records}, decisions
+
+    def test_only_selected_polygons_are_confirmed(self):
+        report, decisions = self.sample()
+        self.assertEqual(apply_manual_decisions(report, decisions), 1)
+        record = report["records"][0]
+        self.assertEqual(record["status"], "confirmed")
+        self.assertEqual([(x["source"], x["id"]) for x in record["links"]],
+                         [("osm", "11"), ("visicom", "V3")])
+        self.assertEqual(record["links"][0]["house"], "3")
+        self.assertEqual(report["counts"], {"exact": 1, "confirmed": 1})
+        self.assertEqual(report["records"][1]["status"], "exact")
+
+    def test_unknown_polygon_must_not_be_confirmed(self):
+        report, decisions = self.sample()
+        decisions["decisions"][0]["links"].append({"source": "osm", "id": "missing"})
+        with self.assertRaisesRegex(ValueError, "absent from DTEK candidates"):
+            apply_manual_decisions(report, decisions)
+
+    def test_unknown_address_must_not_be_ignored(self):
+        report, decisions = self.sample()
+        decisions["decisions"][0]["house"] = "999"
+        with self.assertRaisesRegex(ValueError, "not found"):
+            apply_manual_decisions(report, decisions)
+
+    def test_duplicate_manual_links_rejected(self):
+        report, decisions = self.sample()
+        decisions["decisions"][0]["links"].append({"source": "osm", "id": "11"})
+        with self.assertRaisesRegex(ValueError, "Duplicate confirmed polygon"):
+            apply_manual_decisions(report, decisions)
+
+    def test_unsupported_decision_schema_rejected(self):
+        report, decisions = self.sample()
+        decisions["schemaVersion"] = 4
+        with self.assertRaisesRegex(ValueError, "Unsupported manual DTEK"):
+            apply_manual_decisions(report, decisions)
 
 
 class AddressMatchingTests(unittest.TestCase):
