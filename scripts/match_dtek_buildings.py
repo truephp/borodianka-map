@@ -237,6 +237,69 @@ def match_houses(responses, building_records, aliases=None, roads=None, director
     return {"schemaVersion": 2, "counts": dict(counts), "records": out}
 
 
+
+def apply_manual_decisions(result, payload):
+    """Apply reviewed DTEK links to the canonical report before encryption.
+
+    Refuse stale/unknown polygon IDs instead of silently publishing an
+    incorrect confirmation. Do not alter the source building GeoJSON.
+    """
+    if (payload.get("schemaVersion") != 1 or
+            payload.get("source") != "manual-dtek-borodianka-review" or
+            not isinstance(payload.get("decisions"), list)):
+        raise ValueError("Unsupported manual DTEK decisions file")
+
+    by_address = {}
+    for record in result["records"]:
+        key = (record.get("city"), record.get("street"), record.get("house"))
+        if key in by_address:
+            raise ValueError(f"Duplicate DTEK address in report: {key}")
+        by_address[key] = record
+
+    applied = 0
+    seen = set()
+    for decision in payload["decisions"]:
+        key = (decision.get("city"), decision.get("street"), decision.get("house"))
+        if key in seen:
+            raise ValueError(f"Duplicate manual DTEK decision: {key}")
+        seen.add(key)
+        record = by_address.get(key)
+        if record is None:
+            raise ValueError(f"Manual DTEK address not found in report: {key}")
+        if decision.get("action") != "confirm":
+            raise ValueError(f"Unsupported manual DTEK action for {key}: {decision.get('action')}")
+        selection = decision.get("links")
+        if not isinstance(selection, list) or not selection:
+            raise ValueError(f"Manual DTEK confirmation has no links: {key}")
+        allowed = {(l["source"], str(l["id"])): l for l in record.get("links", [])}
+        selected = set()
+        links = []
+        for item in selection:
+            identifier = (item.get("source"), str(item.get("id")))
+            if identifier in selected:
+                raise ValueError(f"Duplicate confirmed polygon for {key}: {identifier}")
+            selected.add(identifier)
+            if identifier not in allowed:
+                raise ValueError(f"Confirmed polygon is absent from DTEK candidates for {key}: {identifier}")
+            links.append(allowed[identifier])
+        previous_status = record["status"]
+        record["status"] = "confirmed"
+        record["links"] = links
+        record["manualReview"] = {
+            "action": "confirm",
+            "initialStatus": decision.get("initialStatus"),
+            "previousStatus": previous_status,
+        }
+        counts = result["counts"]
+        counts[previous_status] -= 1
+        if counts[previous_status] == 0:
+            del counts[previous_status]
+        counts["confirmed"] = counts.get("confirmed", 0) + 1
+        applied += 1
+    result["manualDecisionsApplied"] = applied
+    return applied
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--dtek", required=True, help="Captured DTEK house-number JSON")
@@ -245,6 +308,7 @@ def main(argv=None):
     ap.add_argument("--directory", default="data/dtek-borodianka-streets.json")
     ap.add_argument("--visicom-encrypted", help="Encrypted merged Visicom-first building GeoJSON")
     ap.add_argument("--aliases", help="Reviewed DTEK city|street to canonical street map")
+    ap.add_argument("--manual-decisions", help="Reviewed manual DTEK links applied before report encryption")
     ap.add_argument("--output", required=True)
     ap.add_argument("--summary", help="Save public aggregate counts only")
     args = ap.parse_args(argv)
@@ -271,6 +335,11 @@ def main(argv=None):
     result = match_houses(raw["responses"], buildings, aliases, roads=roads, directory=directory)
     result["sourceFetchedAt"] = raw.get("fetchedAt")
     result["buildingSources"] = dict(Counter(b["source"] for b in buildings))
+    if args.manual_decisions:
+        if not private:
+            raise ValueError("Manual cross-source decisions require the encrypted unified report")
+        decisions = json.loads(Path(args.manual_decisions).read_text(encoding="utf-8"))
+        apply_manual_decisions(result, decisions)
     # Aggregate-only diagnostics: never expose decrypted Visicom addresses.
     source_names = {b["streetKey"] for b in buildings}
     source_typed_names = {(b["kind"], b["streetKey"]) for b in buildings}
@@ -306,7 +375,8 @@ def main(argv=None):
                "counts": result["counts"], "buildingsWithAddress": len(buildings),
                "buildingSources": result["buildingSources"],
                "diagnosticCounts": result["diagnosticCounts"],
-               "encryptedDetailedReport": private}
+               "encryptedDetailedReport": private,
+               "manualDecisionsApplied": result.get("manualDecisionsApplied", 0)}
     if args.summary:
         Path(args.summary).write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False))
