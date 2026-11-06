@@ -1100,9 +1100,9 @@ function appendDtekFields(popup,record){
   popup.append(line);
  }
 }
-const dtekMatchStatuses=new Set(['exact','multiple','candidate_house_format','candidate_street_type','candidate_street_and_house_format']);
+const dtekMatchStatuses=new Set(['exact','confirmed','multiple','candidate_house_format','candidate_street_type','candidate_street_and_house_format']);
 const dtekStatusLabels={
- exact:'Точний збіг', multiple:'Кілька можливих контурів',
+ exact:'Точний збіг', confirmed:'Підтверджено вручну', multiple:'Кілька можливих контурів',
  candidate_house_format:'Варіант написання номера',
  candidate_street_type:'Неоднозначний тип вулиці',
  candidate_street_and_house_format:'Тип вулиці та номер потребують перевірки'
@@ -1128,7 +1128,7 @@ function dtekPresenceDraw(){
    const key=dtekReviewLinkKey(link);
    if(selected&&!selected.has(key))continue;
    if(!lookup.has(key))lookup.set(key,{link,records:[]});
-   lookup.get(key).records.push({record,confirmed:decision?.action==='confirm'||record.status==='exact'});
+   lookup.get(key).records.push({record,confirmed:decision?.action==='confirm'||record.status==='exact'||record.status==='confirmed'});
   }
  }
  let mapped=0,exactCount=0,candidateCount=0;
