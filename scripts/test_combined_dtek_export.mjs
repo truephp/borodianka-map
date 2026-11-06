@@ -10,7 +10,7 @@ assert(start>=0&&end>start,'Combined DTEK patch validation not found');
 const polygon=(x)=>({type:'Polygon',coordinates:[[[x,0],[x+1,0],[x+1,1],[x,1],[x,0]]]});
 const source={features:[{type:'Feature',properties:{id:42,street:'вулиця Семашка',housenumber:'3'},geometry:polygon(0)}]};
 const pointData={features:[{geometry:{type:'Point',coordinates:[11,0.5]},properties:{id:72,street:'вулиця Семашка',housenumber:'3'}}]};
-const sandbox={assert,source,pointData};
+const sandbox={assert,source,pointData,structuredClone};
 runInNewContext(html.slice(start,end)+`
  const buildingData=source,addressPoints=pointData;
  function currentFeatureFrom(){return null;}
