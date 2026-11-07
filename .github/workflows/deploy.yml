@@ -83,6 +83,7 @@ jobs:
             --original data/buildings.original.geojson \
             --points data/address-points.geojson \
             --master data/borodianka-manual-overrides.json \
+            --approvals data/borodianka-osm-approvals.json \
             --output "$RUNNER_TEMP/buildings.patched.geojson" \
             --report "$RUNNER_TEMP/osm-patch-report.json"
           cp "$RUNNER_TEMP/buildings.patched.geojson" data/buildings.geojson
