@@ -1,0 +1,74 @@
+name: Merge exported map edits into cumulative master
+
+on:
+  workflow_dispatch:
+    inputs:
+      incoming_path:
+        description: 'Repository path of uploaded exported JSON'
+        required: true
+        default: 'pending/borodianka-manual-overrides.json'
+  push:
+    branches: [main]
+    paths:
+      - 'pending/borodianka-manual-overrides.json'
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: borodianka-manual-overrides-merge
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify merge and conflict logic
+        run: python -m unittest scripts.test_build_map_patches -v
+      - name: Merge incoming export into master file
+        env:
+          INCOMING: ${{ github.event.inputs.incoming_path || 'pending/borodianka-manual-overrides.json' }}
+        run: |
+          set -euo pipefail
+          # Never allow action inputs to escape the designated upload directory.
+          test "$INCOMING" = "pending/borodianka-manual-overrides.json"
+          test -s "$INCOMING"
+          python scripts/build_map_patches.py merge \
+            --master data/borodianka-manual-overrides.json \
+            --incoming "$INCOMING" \
+            --output data/borodianka-manual-overrides.json
+          python scripts/build_map_patches.py apply \
+            --original data/buildings.geojson \
+            --points data/address-points.geojson \
+            --master data/borodianka-manual-overrides.json \
+            --approvals data/borodianka-osm-approvals.json \
+            --output "$RUNNER_TEMP/osm-buildings-patched.geojson" \
+            --report "$RUNNER_TEMP/osm-patch-report.json" || {
+              cat "$RUNNER_TEMP/osm-patch-report.json"
+              echo "::warning::Some OSM edits need explicit geometry review; master will be retained, deployment blocked until resolved."
+            }
+      - name: Commit cumulative master (remove upload staging copy)
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/borodianka-manual-overrides.json
+          git rm -f --ignore-unmatch pending/borodianka-manual-overrides.json
+          if ! git diff --cached --quiet; then
+            git commit -m "data: merge reviewed geometry, addresses and DTEK decisions"
+            git push
+          fi
+      - name: Trigger regular deploy and DTEK rebuild
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh workflow run deploy.yml --ref main
+          gh workflow run dtek-all-addresses.yml --ref main
