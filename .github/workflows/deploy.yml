@@ -28,6 +28,8 @@ jobs:
           ref: main
       - name: Test manual OSM polygon address patching
         run: python3 -m unittest scripts.test_apply_osm_address_overrides scripts.test_match_dtek_buildings -v
+      - name: Verify cumulative map patch merge and conflict checks
+        run: python3 -m unittest scripts.test_build_map_patches -v
       - name: Verify administrator workflow sections
         run: node scripts/test_admin_sections.mjs
       - name: Verify building layer controls and independent house numbers
@@ -74,6 +76,16 @@ jobs:
           for file in /tmp/map-inline-scripts/*.js; do
             node --check "$file"
           done
+      - name: Build corrected OSM for publication; block changed-baseline conflicts
+        run: |
+          cp data/buildings.geojson data/buildings.original.geojson
+          python3 scripts/build_map_patches.py apply \
+            --original data/buildings.original.geojson \
+            --points data/address-points.geojson \
+            --master data/borodianka-manual-overrides.json \
+            --output "$RUNNER_TEMP/buildings.patched.geojson" \
+            --report "$RUNNER_TEMP/osm-patch-report.json"
+          cp "$RUNNER_TEMP/buildings.patched.geojson" data/buildings.geojson
       - name: Find latest successful full DTEK report
         id: dtek-run
         uses: actions/github-script@v7
