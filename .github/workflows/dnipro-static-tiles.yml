@@ -1,0 +1,159 @@
+name: Build Dnipro Static OSM Tiles → R2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/dnipro-static-tiles.yml'
+  workflow_dispatch:
+    inputs:
+      min_zoom:
+        description: Minimum zoom
+        required: true
+        type: number
+        default: 13
+      max_zoom:
+        description: Maximum zoom
+        required: true
+        type: number
+        default: 19
+      version:
+        description: Version folder under dnipro/
+        required: true
+        type: string
+        default: v1
+      publish:
+        description: Upload generated tiles to Cloudflare R2
+        type: boolean
+        required: true
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dnipro-static-osm-tiles
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      MIN_ZOOM: ${{ github.event_name == 'push' && '13' || inputs.min_zoom }}
+      MAX_ZOOM: ${{ github.event_name == 'push' && '19' || inputs.max_zoom }}
+      TILE_VERSION: ${{ github.event_name == 'push' && 'v1' || inputs.version }}
+      PUBLISH: ${{ github.event_name == 'push' && 'true' || inputs.publish }}
+      R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+      R2_BUCKET: ${{ vars.R2_BUCKET }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate city/version/zoom and R2 access settings
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          python - <<'PY'
+          import os,re
+          a,b=int(os.environ['MIN_ZOOM']),int(os.environ['MAX_ZOOM'])
+          assert 0<=a<=b<=19
+          assert re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9._-]{0,49}',os.environ['TILE_VERSION'])
+          if os.environ['PUBLISH']=='true':
+              for key in ('R2_ACCOUNT_ID','R2_BUCKET','AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY'):
+                  assert os.environ.get(key), 'Missing GitHub secret/variable: '+key
+          print('Generating dnipro/',os.environ['TILE_VERSION'],'zoom',a,'to',b)
+          PY
+
+      - name: Install OSM extract tools, rasterizer and R2 uploader
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y osmium-tool fonts-dejavu-core
+          python -m pip install --disable-pip-version-check 'Pillow>=11,<13' 'shapely>=2,<3' 'mercantile>=1.2,<2' 'awscli>=1.40,<3'
+
+      - name: Verify tile generator
+        run: |
+          python -m py_compile scripts/build_osm_tiles.py scripts/fetch_tile_boundary.py
+          python -m unittest scripts.test_osm_tiles -v
+
+      - name: Fetch OSM relation for Dnipro city (not surrounding hromada)
+        run: |
+          python scripts/fetch_tile_boundary.py \
+            --relation 1017311 --name Дніпро \
+            --output "$RUNNER_TEMP/dnipro-boundary.geojson"
+
+      - name: Download OSM PBF from Geofabrik
+        run: |
+          mkdir -p "$RUNNER_TEMP/osm"
+          curl --fail --location --retry 4 --retry-delay 8 \
+            --output "$RUNNER_TEMP/osm/ukraine.osm.pbf" \
+            https://download.geofabrik.de/europe/ukraine-latest.osm.pbf
+          test -s "$RUNNER_TEMP/osm/ukraine.osm.pbf"
+
+      - name: Extract Dnipro OSM data and export GeoJSON sequence
+        run: |
+          bbox="$(python scripts/build_osm_tiles.py \
+            --boundary "$RUNNER_TEMP/dnipro-boundary.geojson" --print-bbox)"
+          osmium extract --strategy complete_ways --bbox "$bbox" \
+            "$RUNNER_TEMP/osm/ukraine.osm.pbf" \
+            -o "$RUNNER_TEMP/osm/dnipro.osm.pbf"
+          osmium export --geometry-types=linestring,polygon \
+            "$RUNNER_TEMP/osm/dnipro.osm.pbf" -f geojsonseq \
+            -o "$RUNNER_TEMP/osm/dnipro.geojsonseq"
+          test -s "$RUNNER_TEMP/osm/dnipro.geojsonseq"
+          rm -f "$RUNNER_TEMP/osm/ukraine.osm.pbf"
+
+      - name: Render Dnipro XYZ WebP 256px (zoom 13-19, no buildings)
+        run: |
+          python scripts/build_osm_tiles.py \
+            --city dnipro --boundary "$RUNNER_TEMP/dnipro-boundary.geojson" \
+            --input "$RUNNER_TEMP/osm/dnipro.geojsonseq" \
+            --out "$RUNNER_TEMP/tiles" \
+            --min-zoom "$MIN_ZOOM" --max-zoom "$MAX_ZOOM"
+
+      - name: Report tile count and storage consumption
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json,os,pathlib
+          data=json.loads((pathlib.Path(os.environ['RUNNER_TEMP'])/'tiles/manifest.json').read_text())
+          print('## Дніпро — OSM WebP тайли, '+os.environ['TILE_VERSION'])
+          print(f"**Усього:** {data['totalTiles']:,} тайлів · {data['totalBytes']/1024**2:,.2f} MiB · {data['totalBytes']/1024**3:,.3f} GiB")
+          print(f"Середній тайл: {data['averageTileBytes']:,.0f} байт")
+          print('| Zoom | Тайлів | Обсяг MiB |')
+          print('|---|---:|---:|')
+          for z,n in data['counts'].items():
+              print(f"| {z} | {n:,} | {data['bytesByZoom'][z]/1024**2:,.2f} |")
+          print('R2 prefix: `dnipro/'+os.environ['TILE_VERSION']+'/`')
+          PY
+
+      - name: Upload tile manifest for inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: dnipro-v1-tile-manifest
+          path: ${{ runner.temp }}/tiles/manifest.json
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Publish tile dataset under dnipro/v1 in Cloudflare R2
+        if: env.PUBLISH == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          set -euo pipefail
+          endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          destination="s3://${R2_BUCKET}/dnipro/${TILE_VERSION}"
+          aws s3 sync "$RUNNER_TEMP/tiles/" "$destination/" \
+            --endpoint-url "$endpoint" --no-progress \
+            --exclude '*' --include '*.webp' \
+            --content-type image/webp \
+            --cache-control 'public, max-age=31536000, immutable'
+          aws s3 cp "$RUNNER_TEMP/tiles/manifest.json" "$destination/manifest.json" \
+            --endpoint-url "$endpoint" --content-type application/json \
+            --cache-control 'public, max-age=31536000, immutable'
+          echo "Published: dnipro/${TILE_VERSION}/"
