@@ -1400,6 +1400,9 @@ function mergeManualPatchDocuments(base,incoming){
  if(!base||!incoming||base.schemaVersion!==1||incoming.schemaVersion!==1||
     base.source!=='manual-dtek-borodianka-review'||incoming.source!==base.source)
   throw Error('Некоректний master-файл правок');
+ if(incoming.baseRevision!=null&&base.masterRevision!=null&&
+    incoming.baseRevision!==base.masterRevision)
+  throw Error('JSON створено для старої ревізії master-файлу. Онови сторінку та повторно імпортуй свої правки.');
  const types=[
   ['decisions',v=>JSON.stringify([v.city,v.street,v.house])],
   ['geometryPatches',v=>String(v.id)],
