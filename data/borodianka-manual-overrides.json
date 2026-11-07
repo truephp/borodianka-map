@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "source": "manual-dtek-borodianka-review",
+  "createdAt": "2026-11-06T12:55:53.349Z",
+  "decisions": [
+    {
+      "city": "с-ще Бородянка",
+      "street": "вул. Семашка",
+      "house": "3",
+      "initialStatus": "multiple",
+      "action": "confirm",
+      "links": [
+        {
+          "source": "visicom",
+          "id": "ADR3K0MZV5DRNTPUJF"
+        },
+        {
+          "source": "osm",
+          "id": "272972133"
+        },
+        {
+          "source": "osm",
+          "id": "272972143"
+        },
+        {
+          "source": "osm",
+          "id": "360989136"
+        }
+      ]
+    }
+  ],
+  "geometryPatches": [],
+  "addressOverrides": []
+}
