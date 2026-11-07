@@ -77,7 +77,12 @@ def merge(master, incoming):
     silently rebase historical overrides to a newer OSM version.
     """
     base, change = normalized(master), normalized(incoming)
-    merged = {"schemaVersion": 1, "source": SOURCE}
+    revision = master.get("masterRevision", 0)
+    if not isinstance(revision, int) or revision < 0:
+        raise ValueError("Invalid master revision")
+    if "baseRevision" in incoming and incoming["baseRevision"] != revision:
+        raise ValueError(f"Stale patch export: based on master revision {incoming['baseRevision']}, current is {revision}")
+    merged = {"schemaVersion": 1, "source": SOURCE, "masterRevision": revision + 1}
     for section in ("decisions", "geometryPatches", "addressOverrides"):
         old = index_unique(section, base[section])
         new = index_unique(section, change[section])
