@@ -1405,7 +1405,8 @@ function mergeManualPatchDocuments(base,incoming){
   ['geometryPatches',v=>String(v.id)],
   ['addressOverrides',v=>String(v.osmId)]
  ];
- const output={schemaVersion:1,source:base.source,createdAt:new Date().toISOString()};
+ const output={schemaVersion:1,source:base.source,createdAt:new Date().toISOString(),
+  baseRevision:base.masterRevision??base.baseRevision??0};
  for(const [field,keyFor] of types){
   const old=base[field]||[],next=incoming[field]||[];
   if(!Array.isArray(old)||!Array.isArray(next))throw Error('Некоректний список '+field);
