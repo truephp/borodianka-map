@@ -24,6 +24,7 @@ const incoming=doc([],[{source:'osm',id:'7',geometry:baseGeom}],[
 runInNewContext(html.slice(begin,end)+`
  const output=mergeManualPatchDocuments({...original,masterRevision:5},incoming);
  assert.equal(output.baseRevision,5);
+ assert.throws(()=>mergeManualPatchDocuments({...original,masterRevision:5},{...incoming,baseRevision:4}),/старої ревізії/);
  assert.equal(output.decisions.length,1);
  assert.equal(output.geometryPatches.length,1);
  assert.equal(output.addressOverrides.length,1);
