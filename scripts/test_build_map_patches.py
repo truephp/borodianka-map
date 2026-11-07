@@ -89,6 +89,18 @@ class CumulativeMapPatchTests(unittest.TestCase):
         result, report = apply(changed, self.points, doc(address=[address]))
         self.assertIsNone(result)
 
+    def test_invalid_geometry_blocks_export(self):
+        patch = dict(self.patch, geometry={"type": "Polygon", "coordinates":
+                      [[[0, 0], [2, 2], [0, 2], [2, 0], [0, 0]]]})
+        with self.assertRaisesRegex(ValueError, "Zero-area|Self-intersecting"):
+            apply(self.original, self.points, doc([patch]))
+
+    def test_unclosed_ring_blocks_export(self):
+        patch = dict(self.patch, geometry={"type": "Polygon", "coordinates":
+                      [[[0, 0], [2, 0], [2, 2], [0, 2]]]})
+        with self.assertRaisesRegex(ValueError, "Unclosed"):
+            apply(self.original, self.points, doc([patch]))
+
     def test_missing_building_blocks(self):
         patch = dict(self.patch, id="999")
         result, report = apply(self.original, self.points, doc([patch]))
