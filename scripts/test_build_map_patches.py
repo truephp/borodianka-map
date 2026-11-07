@@ -109,7 +109,17 @@ class CumulativeMapPatchTests(unittest.TestCase):
 
     def test_merge_idempotent(self):
         master = doc([self.patch])
-        self.assertEqual(merge(master, master), master)
+        result = merge(master, master)
+        self.assertEqual(result["geometryPatches"], master["geometryPatches"])
+        self.assertEqual(result["masterRevision"], 1)
+
+    def test_stale_export_cannot_overwrite_newer_master(self):
+        current = dict(doc([self.patch]), masterRevision=4)
+        previous = dict(doc([dict(self.patch, geometry=polygon(3))]), baseRevision=3)
+        with self.assertRaisesRegex(ValueError, "Stale patch export"):
+            merge(current, previous)
+        previous["baseRevision"] = 4
+        self.assertEqual(merge(current, previous)["masterRevision"], 5)
 
 
 if __name__ == "__main__":
