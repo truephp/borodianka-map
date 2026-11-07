@@ -34,6 +34,8 @@ jobs:
         run: node scripts/test_admin_sections.mjs
       - name: Verify building layer controls and independent house numbers
         run: node scripts/test_building_layer_controls.mjs
+      - name: Verify browser cumulative master merge
+        run: node scripts/test_cumulative_frontend_export.mjs
       - name: Verify combined DTEK and building patch import/export
         run: node scripts/test_combined_dtek_export.mjs
       - name: Verify DTEK details in building popups
