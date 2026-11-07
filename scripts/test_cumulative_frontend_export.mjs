@@ -22,7 +22,8 @@ const incoming=doc([],[{source:'osm',id:'7',geometry:baseGeom}],[
  {osmId:'8',baseGeometry:baseGeom,includeOriginal:false,addresses:[]}
 ]);
 runInNewContext(html.slice(begin,end)+`
- const output=mergeManualPatchDocuments(original,incoming);
+ const output=mergeManualPatchDocuments({...original,masterRevision:5},incoming);
+ assert.equal(output.baseRevision,5);
  assert.equal(output.decisions.length,1);
  assert.equal(output.geometryPatches.length,1);
  assert.equal(output.addressOverrides.length,1);
