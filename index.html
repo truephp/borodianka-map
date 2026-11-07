@@ -529,6 +529,8 @@ function osmAddressRefreshSelected(){
 }
 function osmAddressApply(feature,addresses,includeOriginal){
  const id=String(feature.properties.id);
+ if(!originalBuildingData?.features.some(f=>String(f.properties?.id)===id))
+  throw Error('Не завантажено вихідний OSM для адресного патча #'+id);
  const unique=new Map();
  for(const address of addresses){
   const key=JSON.stringify([address.street,address.housenumber]);
@@ -547,10 +549,10 @@ function osmAddressApply(feature,addresses,includeOriginal){
   addresses:normalized
  };
  setFeaturePatch('osm',id,{properties});
- const original=(originalBuildingData||buildingData)?.features.find(f=>String(f.properties?.id)===id);
- const baseline=original?.geometry?structuredClone(original.geometry):null;
+ const original=originalBuildingData?.features.find(f=>String(f.properties?.id)===id);
+ if(!original)throw Error('Не завантажено вихідний OSM для адресного патча #'+id);
  osmAddressOverrides.set(id,{osmId:id,includeOriginal:!!includeOriginal,addresses:normalized,
-  ...(baseline?{baseGeometry:baseline}:{})});
+  baseGeometry:structuredClone(original.geometry)});
 }
 // Geometry editing is strictly opt-in and limited to the selected OSM polygon.
 // The exported patch preserves OSM IDs, while the original GeoJSON stays intact
@@ -635,10 +637,16 @@ document.getElementById('osmGeomApply').addEventListener('click',()=>{
   osmGeomStatus.textContent='Правки не застосовано: '+e.message;return;
  }
  const id=String(source.properties.id),updated=structuredClone(geometry);
+ if(!originalBuildingData?.features.some(f=>String(f.properties?.id)===id)){
+  osmGeomStatus.textContent='Оригінальний OSM ще не завантажено. Повтори після завантаження.';return;
+ }
  setFeaturePatch('osm',id,{geometry:updated});
- const original=(originalBuildingData||buildingData)?.features.find(f=>String(f.properties?.id)===id);
+ const original=originalBuildingData?.features.find(f=>String(f.properties?.id)===id);
+ if(!original){
+  osmGeomStatus.textContent='Не завантажено оригінальний OSM. Геометричний патч не застосовано.';return;
+ }
  osmGeomPatches.set(id,{source:'osm',id,geometry:updated,
-  ...(original?.geometry?{baseGeometry:structuredClone(original.geometry)}:{})});
+  baseGeometry:structuredClone(original.geometry)});
  osmGeomDiscardEditor();
  osmGeomStatus.textContent='Геометрію OSM #'+id+' застосовано локально. Патчів: '+osmGeomPatches.size+
   '. Для збереження експортуй JSON.';
@@ -1475,7 +1483,8 @@ function validateCombinedDtekPatches(payload){
   }catch(err){throw Error('Некоректна геометрія OSM #'+id+': '+err.message)}
   const copy=structuredClone(entry.geometry);
   staged.set(id,copy);
-  geomChanges.push({source:'osm',id,geometry:copy});
+  geomChanges.push({source:'osm',id,geometry:copy,
+   ...(entry.baseGeometry?{baseGeometry:structuredClone(entry.baseGeometry)}:{})});
  }
  if(addresses.length&&!addressPoints?.features)
   throw Error('Спочатку завантаж адресні точки OSM');
