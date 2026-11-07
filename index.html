@@ -1381,7 +1381,46 @@ document.getElementById('dtekReviewReset').addEventListener('click',()=>{
  dtekReviewSelectedLinks.clear();
  dtekReviewCount();dtekReviewDisplay();dtekPresenceDraw();
 });
-document.getElementById('dtekReviewExport').addEventListener('click',()=>{
+// Published master is the cumulative baseline. Local edits replace entries
+// with matching stable keys; unrelated reviewed decisions always survive.
+let manualMaster=null;
+const manualMasterReady=fetch('./data/borodianka-manual-overrides.json',{cache:'no-cache'})
+ .then(response=>{if(!response.ok)throw Error('HTTP '+response.status);return response.json();})
+ .then(data=>{manualMaster=data;return data;})
+ .catch(error=>{console.warn('Master patch unavailable',error);return null;});
+function mergeManualPatchDocuments(base,incoming){
+ if(!base||!incoming||base.schemaVersion!==1||incoming.schemaVersion!==1||
+    base.source!=='manual-dtek-borodianka-review'||incoming.source!==base.source)
+  throw Error('Некоректний master-файл правок');
+ const types=[
+  ['decisions',v=>JSON.stringify([v.city,v.street,v.house])],
+  ['geometryPatches',v=>String(v.id)],
+  ['addressOverrides',v=>String(v.osmId)]
+ ];
+ const output={schemaVersion:1,source:base.source,createdAt:new Date().toISOString()};
+ for(const [field,keyFor] of types){
+  const old=base[field]||[],next=incoming[field]||[];
+  if(!Array.isArray(old)||!Array.isArray(next))throw Error('Некоректний список '+field);
+  const merged=new Map();
+  for(const item of old){
+   const key=keyFor(item);
+   if(merged.has(key))throw Error('Дубль у master: '+field+'/'+key);
+   merged.set(key,structuredClone(item));
+  }
+  for(const item of next){
+   const key=keyFor(item),previous=merged.get(key),copy=structuredClone(item);
+   if(previous?.baseGeometry){
+    if(copy.baseGeometry&&JSON.stringify(copy.baseGeometry)!==JSON.stringify(previous.baseGeometry))
+     throw Error('Змінився вихідний OSM-контур: '+key+'. Потрібна перевірка на бекенді.');
+    copy.baseGeometry=structuredClone(previous.baseGeometry);
+   }
+   merged.set(key,copy);
+  }
+  output[field]=[...merged.values()];
+ }
+ return output;
+}
+document.getElementById('dtekReviewExport').addEventListener('click',async()=>{
  const entries=dtekReviewRecords.filter(r=>dtekReviewDecisions.has(dtekReviewKey(r))).map(r=>({
   city:r.city,street:r.street,house:r.house,
   initialStatus:r.status,...dtekReviewDecisions.get(dtekReviewKey(r))
@@ -1390,10 +1429,24 @@ document.getElementById('dtekReviewExport').addEventListener('click',()=>{
   createdAt:new Date().toISOString(),decisions:entries,
   geometryPatches:[...osmGeomPatches.values()],
   addressOverrides:[...osmAddressOverrides.values()]};
- const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+ let merged;
+ try{
+  const base=manualMaster||await manualMasterReady;
+  if(!base)throw Error('Не вдалося завантажити master-файл. Імпортуй попередній JSON перед експортом.');
+  merged=mergeManualPatchDocuments(base,data);
+ }catch(error){
+  document.getElementById('manualBackupStatus').textContent='Експорт скасовано: '+error.message;
+  return;
+ }
+ const blob=new Blob([JSON.stringify(merged,null,2)],{type:'application/json'});
  const url=URL.createObjectURL(blob),a=document.createElement('a');
  a.href=url;a.download='borodianka-all-manual-overrides.json';a.click();
  setTimeout(()=>URL.revokeObjectURL(url),1000);
+ manualMaster=merged;
+ document.getElementById('manualBackupStatus').textContent=
+  'Експортовано накопичений JSON: '+merged.decisions.length+' рішень ДТЕК, '+
+  merged.geometryPatches.length+' геометричних і '+merged.addressOverrides.length+
+  ' адресних правок. Для збереження в основному master-файлі виконай merge у репозиторії.';
 });
 // Validate all editable OSM changes before touching the live feature view.
 // Old DTEK-only JSON exports remain valid (both new arrays are optional).
@@ -1517,6 +1570,8 @@ document.getElementById('dtekReviewImport').addEventListener('change',async e=>{
    }
   }
   applyCombinedDtekPatches(patchChanges);
+  const previous=manualMaster||await manualMasterReady;
+  manualMaster=previous?mergeManualPatchDocuments(previous,payload):payload;
   // Geometry-only imports must not erase existing DTEK decisions.
   if(input.source==='manual-dtek-borodianka-review'&&dtekReviewRecords.length)
    dtekReviewDecisions=restored;
