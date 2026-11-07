@@ -412,6 +412,7 @@ if(envelope){json=await decryptVisicomFile(envelope,visicomPasswordInput.value);
 if(json.type==='FeatureCollection'&&Array.isArray(json.features)){const count=applyVisicomFeatures(json);if(envelope){try{await cacheVisicomFile(envelope);}catch(err){info.textContent='Завантажено '+count+' полігонів, але кеш недоступний: '+err.message;return;}}info.textContent='Додано '+count+' полігонів. Унікальних Visicom: '+visicomPolygonMap.size+'.'+(envelope?' Зашифрований файл збережено в браузері.':'');return;}const entries=Array.isArray(json)?json:json.matches;if(!Array.isArray(entries))throw Error('Потрібен масив [{osmId,candidates:[{street,name,dist_meters}]}]');const next=new Map(),failed=new Set();for(const entry of entries){const id=String(entry.osmId??entry.osm_id??'');if(!/^\d+$/.test(id)||!Array.isArray(entry.candidates))throw Error('Некоректний osmId або candidates');if(entry.status==='failed')failed.add(id);next.set(id,entry.candidates.slice(0,20).filter(c=>c&&typeof c==='object').map(c=>({street:String(c.street??'').slice(0,120),name:String(c.name??c.number??'').slice(0,40),dist_meters:Number(c.dist_meters)})));}comparisonData=next;comparisonFailed=failed;refreshVisicomLegend();scheduleRender();info.textContent='Завантажено локально '+next.size+' наборів кандидатів. Дані не публікуються.';if(selectedBuilding!=null){const selected=buildingData?.features.find(f=>String(f.properties.id)===String(selectedBuilding));if(selected)drawCandidates(selected.properties)}}catch(error){info.textContent='Помилка JSON: '+error.message;}e.target.value='';});document.getElementById('closeInspect').onclick=()=>{osmGeomDiscardEditor();selectedBuilding=null;inspectCard.hidden=true;scheduleRender()};document.getElementById('copyInspect').onclick=()=>{if(selectedCoords&&navigator.clipboard?.writeText)navigator.clipboard.writeText(selectedCoords.join(', '))};inspectToggle.addEventListener('change',()=>{if(inspectToggle.checked){selectIndependentOsm();if(map.getZoom()<16)map.setZoom(16)}else{selectedBuilding=null;inspectCard.hidden=true}scheduleRender()});// Immutable imported datasets + one patch store for every map layer.
 // Source keys prevent collisions between OSM way IDs and Visicom feature IDs.
 // No renderer may read raw source geometry after a feature has been patched.
+let originalBuildingData=null; // Raw OSM, separate from the published patched GeoJSON.
 const featurePatches=new Map();
 const featureViewCache=new WeakMap();
 let featureRevision=0;
@@ -481,7 +482,7 @@ function osmBuildingById(id){
  return currentFeatureFrom(buildingData,'osm',id);
 }
 function osmOriginalPolygonAddress(feature){
- const original=buildingData?.features.find(f=>String(f.properties?.id)===String(feature.properties.id));
+ const original=(originalBuildingData||buildingData)?.features.find(f=>String(f.properties?.id)===String(feature.properties.id));
  const p=original?.properties||{};
  return p.street&&p.housenumber?{street:p.street,housenumber:p.housenumber}:null;
 }
@@ -546,7 +547,10 @@ function osmAddressApply(feature,addresses,includeOriginal){
   addresses:normalized
  };
  setFeaturePatch('osm',id,{properties});
- osmAddressOverrides.set(id,{osmId:id,includeOriginal:!!includeOriginal,addresses:normalized});
+ const original=(originalBuildingData||buildingData)?.features.find(f=>String(f.properties?.id)===id);
+ const baseline=original?.geometry?structuredClone(original.geometry):null;
+ osmAddressOverrides.set(id,{osmId:id,includeOriginal:!!includeOriginal,addresses:normalized,
+  ...(baseline?{baseGeometry:baseline}:{})});
 }
 // Geometry editing is strictly opt-in and limited to the selected OSM polygon.
 // The exported patch preserves OSM IDs, while the original GeoJSON stays intact
@@ -632,7 +636,9 @@ document.getElementById('osmGeomApply').addEventListener('click',()=>{
  }
  const id=String(source.properties.id),updated=structuredClone(geometry);
  setFeaturePatch('osm',id,{geometry:updated});
- osmGeomPatches.set(id,{source:'osm',id,geometry:updated});
+ const original=(originalBuildingData||buildingData)?.features.find(f=>String(f.properties?.id)===id);
+ osmGeomPatches.set(id,{source:'osm',id,geometry:updated,
+  ...(original?.geometry?{baseGeometry:structuredClone(original.geometry)}:{})});
  osmGeomDiscardEditor();
  osmGeomStatus.textContent='Геометрію OSM #'+id+' застосовано локально. Патчів: '+osmGeomPatches.size+
   '. Для збереження експортуй JSON.';
@@ -1020,7 +1026,10 @@ document.getElementById('showStreetColors').addEventListener('change',scheduleRe
 map.on('moveend resize',()=>requestAnimationFrame(renderHouseNumbers));
 pointToggle.addEventListener('change',()=>{quickPoints.classList.toggle('active',pointToggle.checked);if(addressPoints)quickPoints.textContent='Знайдені адреси: '+addressPoints.features.length+(pointToggle.checked?' ✓':'');if(pointToggle.checked&&map.getZoom()<15)map.setZoom(15);scheduleRender()});
 fetch('./data/address-points.geojson',{cache:'no-cache'}).then(r=>r.ok?r.json():null).then(data=>{addressPoints=data;if(data){quickPoints.disabled=false;quickPoints.textContent='Знайдені адреси: '+data.features.length;calculateMatches();renderArea()}else pointStats.textContent='Адресні точки ще не імпортовано. Запусти Import OSM data.'}).catch(e=>{pointStats.textContent='Помилка завантаження адресних точок: '+e.message});
-Promise.all([fetch('./data/boundary.geojson').then(r=>r.ok?r.json():null).catch(()=>null),fetch('./data/buildings.geojson').then(r=>r.ok?r.json():null).catch(()=>null)]).then(([b,build])=>{boundaryData=b;buildingData=build;recalculateGeometryMatches();renderVisicomPolygons();calculateMatches();refreshVisicomLegend();if(build){const total=build.features.length,complete=build.features.filter(f=>f.properties.street&&f.properties.housenumber).length,partial=build.features.filter(f=>(f.properties.street||f.properties.housenumber)&&!(f.properties.street&&f.properties.housenumber)).length;addressStats.textContent='Адресні теги будівель: '+complete+' повних, '+partial+' часткових, '+(total-complete-partial)+' без адреси. Зелений — повна адреса, жовтий — часткова, рожевий — адреси немає. У режимі діагностики будівлі видно на будь-якому масштабі.';}renderArea();if(b){const bounds=L.geoJSON(b).getBounds();if(bounds.isValid()){map.setMaxBounds(bounds.pad(0.18));map.fitBounds(bounds,{maxZoom:14,padding:[16,16]})}}if(features.length)render();});fetch('./data/roads.geojson',{cache:'no-cache'}).then(r=>{if(!r.ok)throw Error('HTTP '+r.status+'; спочатку запусти workflow Import OSM data');return r.json()}).then(data=>{features=(data.features||[]).filter(f=>f.geometry?.type==='LineString');status.textContent='Завантажено '+features.length+' сегментів вулиць'+(buildingData?' · '+buildingData.features.length+' будівель':'')+'. Кольори демонстраційні.';if(!features.length)throw Error('Файл доріг порожній');stableStreetLabelZoom=null;render();renderStreetLabels();const bounds=L.geoJSON(data).getBounds();if(bounds.isValid() && !boundaryData)map.fitBounds(bounds.pad(.04),{maxZoom:14})}).catch(e=>{status.textContent='Дороги не завантажено: '+e.message;status.style.color='#ff9c9c';body.hidden=false});
+fetch('./data/buildings.original.geojson',{cache:'no-cache'})
+ .then(r=>r.ok?r.json():null).then(data=>{originalBuildingData=data;})
+ .catch(err=>console.warn('Raw OSM baseline unavailable:',err));
+Promise.all([fetch('./data/boundary.geojson').then(r=>r.ok?r.json():null).catch(()=>null),fetch('./data/buildings.geojson',{cache:'no-cache'}).then(r=>r.ok?r.json():null).catch(()=>null)]).then(([b,build])=>{boundaryData=b;buildingData=build;recalculateGeometryMatches();renderVisicomPolygons();calculateMatches();refreshVisicomLegend();if(build){const total=build.features.length,complete=build.features.filter(f=>f.properties.street&&f.properties.housenumber).length,partial=build.features.filter(f=>(f.properties.street||f.properties.housenumber)&&!(f.properties.street&&f.properties.housenumber)).length;addressStats.textContent='Адресні теги будівель: '+complete+' повних, '+partial+' часткових, '+(total-complete-partial)+' без адреси. Зелений — повна адреса, жовтий — часткова, рожевий — адреси немає. У режимі діагностики будівлі видно на будь-якому масштабі.';}renderArea();if(b){const bounds=L.geoJSON(b).getBounds();if(bounds.isValid()){map.setMaxBounds(bounds.pad(0.18));map.fitBounds(bounds,{maxZoom:14,padding:[16,16]})}}if(features.length)render();});fetch('./data/roads.geojson',{cache:'no-cache'}).then(r=>{if(!r.ok)throw Error('HTTP '+r.status+'; спочатку запусти workflow Import OSM data');return r.json()}).then(data=>{features=(data.features||[]).filter(f=>f.geometry?.type==='LineString');status.textContent='Завантажено '+features.length+' сегментів вулиць'+(buildingData?' · '+buildingData.features.length+' будівель':'')+'. Кольори демонстраційні.';if(!features.length)throw Error('Файл доріг порожній');stableStreetLabelZoom=null;render();renderStreetLabels();const bounds=L.geoJSON(data).getBounds();if(bounds.isValid() && !boundaryData)map.fitBounds(bounds.pad(.04),{maxZoom:14})}).catch(e=>{status.textContent='Дороги не завантажено: '+e.message;status.style.color='#ff9c9c';body.hidden=false});
 
 // DTEK REVIEW PILOT: an encrypted Actions artifact is decrypted only in this tab.
 // No Visicom-derived plaintext is persisted or uploaded. Manual approvals are
