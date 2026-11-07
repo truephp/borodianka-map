@@ -171,6 +171,7 @@ def render_tile(tile, tree, features):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--boundary", default="data/boundary.geojson")
+    parser.add_argument("--city", default="borodianka")
     parser.add_argument("--input", help="OSM GeoJSON sequence exported by osmium")
     parser.add_argument("--out", default="dist/tiles")
     parser.add_argument("--min-zoom", type=int, default=13)
@@ -195,10 +196,12 @@ def main():
     tree = STRtree([row[0] for row in features])
     output = Path(args.out)
     count, per_zoom = 0, {}
+    total_bytes, bytes_by_zoom = 0, {}
     buffered_boundary = boundary.buffer(max(boundary.bounds[2] - boundary.bounds[0],
                                             boundary.bounds[3] - boundary.bounds[1]) * args.padding)
     for z in range(args.min_zoom, args.max_zoom + 1):
         current = 0
+        zoom_bytes = 0
         for tile in mercantile.tiles(*bbox, zooms=z):
             if not buffered_boundary.intersects(box(*mercantile.bounds(tile))):
                 continue
@@ -206,14 +209,19 @@ def main():
             file.parent.mkdir(parents=True, exist_ok=True)
             image = render_tile(tile, tree, features)
             image.save(file, format="WEBP", quality=args.quality, method=4)
+            zoom_bytes += file.stat().st_size
             current += 1
         per_zoom[str(z)] = current
+        bytes_by_zoom[str(z)] = zoom_bytes
         count += current
-        print(f"zoom {z}: {current} tiles; total {count}", flush=True)
-    manifest = {"type": "BorodiankaStaticOSMTiles", "scheme": "xyz", "format": "webp",
+        total_bytes += zoom_bytes
+        print(f"zoom {z}: {current} tiles, {zoom_bytes/1024/1024:.2f} MiB; total {count} tiles, {total_bytes/1024/1024:.2f} MiB", flush=True)
+    manifest = {"type": "StaticOSMTiles", "city": args.city, "scheme": "xyz", "format": "webp",
                 "minZoom": args.min_zoom, "maxZoom": args.max_zoom,
                 "bounds": [round(v, 7) for v in bbox], "tileSize": TILE_SIZE,
                 "counts": per_zoom, "totalTiles": count,
+                "bytesByZoom": bytes_by_zoom, "totalBytes": total_bytes,
+                "averageTileBytes": round(total_bytes/count, 1) if count else 0,
                 "attribution": "© OpenStreetMap contributors (ODbL)",
                 "buildingsRendered": False}
     (output / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
