@@ -12,6 +12,7 @@ import argparse
 from copy import deepcopy
 import hashlib
 import json
+import math
 from pathlib import Path
 import sys
 
@@ -93,6 +94,48 @@ def merge(master, incoming):
     return merged
 
 
+
+def validate_geometry(geometry, ident):
+    """Validate GeoJSON polygon rings before replacing an OSM way."""
+    if not isinstance(geometry, dict) or geometry.get("type") not in ("Polygon", "MultiPolygon"):
+        raise ValueError("Invalid polygon type: " + ident)
+    polygons = ([geometry.get("coordinates")] if geometry["type"] == "Polygon"
+                else geometry.get("coordinates"))
+    if not isinstance(polygons, list) or not polygons:
+        raise ValueError("Empty polygon geometry: " + ident)
+
+    def crosses(a, b, c, d):
+        def orient(p, q, r):
+            return (q[0]-p[0])*(r[1]-p[1])-(q[1]-p[1])*(r[0]-p[0])
+        ac, ad, ca, cb = orient(a, b, c), orient(a, b, d), orient(c, d, a), orient(c, d, b)
+        return (ac*ad < 0 and ca*cb < 0)
+
+    for polygon in polygons:
+        if not isinstance(polygon, list) or not polygon:
+            raise ValueError("Empty polygon rings: " + ident)
+        for ring in polygon:
+            if not isinstance(ring, list) or len(ring) < 4 or ring[0] != ring[-1]:
+                raise ValueError("Unclosed or undersized polygon ring: " + ident)
+            if any(not isinstance(p, list) or len(p) < 2 or
+                   not all(isinstance(n, (int, float)) and math.isfinite(n) for n in p[:2])
+                   for p in ring):
+                raise ValueError("Non-finite polygon coordinates: " + ident)
+            area2 = sum(ring[i][0]*ring[i+1][1]-ring[i+1][0]*ring[i][1]
+                        for i in range(len(ring)-1))
+            if abs(area2) < 1e-16:
+                raise ValueError("Zero-area polygon ring: " + ident)
+            segments = list(zip(ring[:-1], ring[1:]))
+            for i, (a,b) in enumerate(segments):
+                if a == b:
+                    raise ValueError("Repeated polygon vertex: " + ident)
+                for j in range(i+2, len(segments)):
+                    if i == 0 and j == len(segments)-1:
+                        continue
+                    c,d = segments[j]
+                    if crosses(a,b,c,d):
+                        raise ValueError("Self-intersecting polygon: " + ident)
+
+
 def apply(original, points, master, approvals=None):
     """Return patched copy and report. On conflict, return no output.
 
@@ -139,8 +182,7 @@ def apply(original, points, master, approvals=None):
     for entry in doc["geometryPatches"]:
         ident = str(entry["id"])
         geometry = entry.get("geometry")
-        if not isinstance(geometry, dict) or geometry.get("type") not in ("Polygon", "MultiPolygon"):
-            raise ValueError("Invalid polygon geometry in patch: " + ident)
+        validate_geometry(geometry, ident)
         # Source geometries remain unmodified (output is a deep copy).
         features[ident]["geometry"] = deepcopy(geometry)
     if doc["addressOverrides"]:
