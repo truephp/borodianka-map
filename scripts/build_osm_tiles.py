@@ -179,6 +179,8 @@ def main():
     parser.add_argument("--padding", type=float, default=.18)
     parser.add_argument("--quality", type=int, default=78)
     parser.add_argument("--print-bbox", action="store_true")
+    parser.add_argument("--shard-index", type=int, default=0)
+    parser.add_argument("--shard-count", type=int, default=1)
     args = parser.parse_args()
     boundary = boundary_geometry(args.boundary)
     bbox = padded_bbox(boundary, args.padding)
@@ -189,6 +191,8 @@ def main():
         parser.error("--input is required unless --print-bbox")
     if not 0 <= args.min_zoom <= args.max_zoom <= 19:
         parser.error("zoom range must be within 0..19")
+    if args.shard_count < 1 or not 0 <= args.shard_index < args.shard_count:
+        parser.error("--shard-index must be within [0, --shard-count)")
     features, categories = load_features(args.input, bbox)
     if not features:
         raise RuntimeError("No usable OSM features; refusing to publish blank tiles")
@@ -203,6 +207,8 @@ def main():
         current = 0
         zoom_bytes = 0
         for tile in mercantile.tiles(*bbox, zooms=z):
+            if (tile.x * 1000003 + tile.y) % args.shard_count != args.shard_index:
+                continue
             if not buffered_boundary.intersects(box(*mercantile.bounds(tile))):
                 continue
             file = output / str(z) / str(tile.x) / f"{tile.y}.webp"
@@ -222,6 +228,7 @@ def main():
                 "counts": per_zoom, "totalTiles": count,
                 "bytesByZoom": bytes_by_zoom, "totalBytes": total_bytes,
                 "averageTileBytes": round(total_bytes/count, 1) if count else 0,
+                "shardIndex": args.shard_index, "shardCount": args.shard_count,
                 "attribution": "© OpenStreetMap contributors (ODbL)",
                 "buildingsRendered": False}
     (output / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
