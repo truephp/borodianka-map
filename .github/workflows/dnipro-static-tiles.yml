@@ -1,29 +1,15 @@
-name: Build Dnipro Static OSM Tiles → R2
+name: Build Dnipro Static OSM Tiles → R2 (sharded)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/dnipro-static-tiles.yml'
   workflow_dispatch:
     inputs:
-      min_zoom:
-        description: Minimum zoom
-        required: true
-        type: number
-        default: 13
-      max_zoom:
-        description: Maximum zoom
-        required: true
-        type: number
-        default: 19
       version:
         description: Version folder under dnipro/
         required: true
         type: string
         default: v1
       publish:
-        description: Upload generated tiles to Cloudflare R2
+        description: Publish to R2 (false = compute only, no resume)
         type: boolean
         required: true
         default: true
@@ -32,114 +18,164 @@ permissions:
   contents: read
 
 concurrency:
-  group: dnipro-static-osm-tiles
+  group: dnipro-static-osm-tiles-${{ inputs.version }}
   cancel-in-progress: false
 
+env:
+  TILE_VERSION: ${{ inputs.version }}
+  PUBLISH: ${{ inputs.publish }}
+  R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+  R2_BUCKET: ${{ vars.R2_BUCKET }}
+
 jobs:
-  build:
+  prepare:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
-    env:
-      MIN_ZOOM: ${{ github.event_name == 'push' && '13' || inputs.min_zoom }}
-      MAX_ZOOM: ${{ github.event_name == 'push' && '19' || inputs.max_zoom }}
-      TILE_VERSION: ${{ github.event_name == 'push' && 'v1' || inputs.version }}
-      PUBLISH: ${{ github.event_name == 'push' && 'true' || inputs.publish }}
-      R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-      R2_BUCKET: ${{ vars.R2_BUCKET }}
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
-      - name: Validate city/version/zoom and R2 access settings
+      - name: Validate input and bucket access
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           python - <<'PY'
-          import os,re
-          a,b=int(os.environ['MIN_ZOOM']),int(os.environ['MAX_ZOOM'])
-          assert 0<=a<=b<=19
-          assert re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9._-]{0,49}',os.environ['TILE_VERSION'])
-          if os.environ['PUBLISH']=='true':
-              for key in ('R2_ACCOUNT_ID','R2_BUCKET','AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY'):
-                  assert os.environ.get(key), 'Missing GitHub secret/variable: '+key
-          print('Generating dnipro/',os.environ['TILE_VERSION'],'zoom',a,'to',b)
+          import os, re
+          assert re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9._-]{0,49}', os.environ['TILE_VERSION'])
+          if os.environ['PUBLISH'] == 'true':
+              for key in ('R2_ACCOUNT_ID', 'R2_BUCKET', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'):
+                  assert os.environ.get(key), 'Missing R2 setting: '+key
           PY
-
-      - name: Install OSM extract tools, rasterizer and R2 uploader
+      - name: Install OSM tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y osmium-tool fonts-dejavu-core
-          python -m pip install --disable-pip-version-check 'Pillow>=11,<13' 'shapely>=2,<3' 'mercantile>=1.2,<2' 'awscli>=1.40,<3'
-
-      - name: Verify tile generator
+          sudo apt-get install -y osmium-tool
+          python -m pip install --disable-pip-version-check 'Pillow>=11,<13' 'shapely>=2,<3' 'mercantile>=1.2,<2'
+      - name: Verify generator
         run: |
           python -m py_compile scripts/build_osm_tiles.py scripts/fetch_tile_boundary.py
           python -m unittest scripts.test_osm_tiles -v
-
-      - name: Fetch OSM relation for Dnipro city (not surrounding hromada)
+      - name: Download Dnipro boundary and OSM data
         run: |
-          python scripts/fetch_tile_boundary.py \
-            --relation 1017311 --name Дніпро \
-            --output "$RUNNER_TEMP/dnipro-boundary.geojson"
-
-      - name: Download OSM PBF from Geofabrik
-        run: |
-          mkdir -p "$RUNNER_TEMP/osm"
-          curl --fail --location --retry 4 --retry-delay 8 \
-            --output "$RUNNER_TEMP/osm/ukraine.osm.pbf" \
-            https://download.geofabrik.de/europe/ukraine-latest.osm.pbf
-          test -s "$RUNNER_TEMP/osm/ukraine.osm.pbf"
-
-      - name: Extract Dnipro OSM data and export GeoJSON sequence
-        run: |
-          bbox="$(python scripts/build_osm_tiles.py \
-            --boundary "$RUNNER_TEMP/dnipro-boundary.geojson" --print-bbox)"
-          osmium extract --strategy complete_ways --bbox "$bbox" \
-            "$RUNNER_TEMP/osm/ukraine.osm.pbf" \
-            -o "$RUNNER_TEMP/osm/dnipro.osm.pbf"
-          osmium export --geometry-types=linestring,polygon \
-            "$RUNNER_TEMP/osm/dnipro.osm.pbf" -f geojsonseq \
-            -o "$RUNNER_TEMP/osm/dnipro.geojsonseq"
-          test -s "$RUNNER_TEMP/osm/dnipro.geojsonseq"
-          rm -f "$RUNNER_TEMP/osm/ukraine.osm.pbf"
-
-      - name: Render Dnipro XYZ WebP 256px (zoom 13-19, no buildings)
-        run: |
-          python scripts/build_osm_tiles.py \
-            --city dnipro --boundary "$RUNNER_TEMP/dnipro-boundary.geojson" \
-            --input "$RUNNER_TEMP/osm/dnipro.geojsonseq" \
-            --out "$RUNNER_TEMP/tiles" \
-            --min-zoom "$MIN_ZOOM" --max-zoom "$MAX_ZOOM"
-
-      - name: Report tile count and storage consumption
-        run: |
-          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
-          import json,os,pathlib
-          data=json.loads((pathlib.Path(os.environ['RUNNER_TEMP'])/'tiles/manifest.json').read_text())
-          print('## Дніпро — OSM WebP тайли, '+os.environ['TILE_VERSION'])
-          print(f"**Усього:** {data['totalTiles']:,} тайлів · {data['totalBytes']/1024**2:,.2f} MiB · {data['totalBytes']/1024**3:,.3f} GiB")
-          print(f"Середній тайл: {data['averageTileBytes']:,.0f} байт")
-          print('| Zoom | Тайлів | Обсяг MiB |')
-          print('|---|---:|---:|')
-          for z,n in data['counts'].items():
-              print(f"| {z} | {n:,} | {data['bytesByZoom'][z]/1024**2:,.2f} |")
-          print('R2 prefix: `dnipro/'+os.environ['TILE_VERSION']+'/`')
-          PY
-
-      - name: Upload tile manifest for inspection
+          mkdir -p "$RUNNER_TEMP/osm" "$RUNNER_TEMP/prepared"
+          python scripts/fetch_tile_boundary.py --relation 1017311 --name Дніпро --output "$RUNNER_TEMP/prepared/boundary.geojson"
+          bbox="$(python scripts/build_osm_tiles.py --boundary "$RUNNER_TEMP/prepared/boundary.geojson" --print-bbox)"
+          curl --fail --location --retry 4 --retry-delay 8 --output "$RUNNER_TEMP/osm/ukraine.osm.pbf" https://download.geofabrik.de/europe/ukraine-latest.osm.pbf
+          osmium extract --strategy complete_ways --bbox "$bbox" "$RUNNER_TEMP/osm/ukraine.osm.pbf" -o "$RUNNER_TEMP/osm/dnipro.osm.pbf"
+          osmium export --geometry-types=linestring,polygon "$RUNNER_TEMP/osm/dnipro.osm.pbf" -f geojsonseq -o "$RUNNER_TEMP/prepared/dnipro.geojsonseq"
+          test -s "$RUNNER_TEMP/prepared/dnipro.geojsonseq"
+          du -h "$RUNNER_TEMP/prepared/"*
+      - name: Share prepared dataset
         uses: actions/upload-artifact@v4
         with:
-          name: dnipro-v1-tile-manifest
-          path: ${{ runner.temp }}/tiles/manifest.json
-          retention-days: 14
+          name: dnipro-osm-prepared
+          path: ${{ runner.temp }}/prepared/
+          retention-days: 3
           if-no-files-found: error
 
-      - name: Publish tile dataset under dnipro/v1 in Cloudflare R2
+  render:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        include:
+          - { zoom: 13, shard: 0, shards: 1 }
+          - { zoom: 14, shard: 0, shards: 1 }
+          - { zoom: 15, shard: 0, shards: 1 }
+          - { zoom: 16, shard: 0, shards: 1 }
+          - { zoom: 17, shard: 0, shards: 2 }
+          - { zoom: 17, shard: 1, shards: 2 }
+          - { zoom: 18, shard: 0, shards: 8 }
+          - { zoom: 18, shard: 1, shards: 8 }
+          - { zoom: 18, shard: 2, shards: 8 }
+          - { zoom: 18, shard: 3, shards: 8 }
+          - { zoom: 18, shard: 4, shards: 8 }
+          - { zoom: 18, shard: 5, shards: 8 }
+          - { zoom: 18, shard: 6, shards: 8 }
+          - { zoom: 18, shard: 7, shards: 8 }
+          - { zoom: 19, shard: 0, shards: 32 }
+          - { zoom: 19, shard: 1, shards: 32 }
+          - { zoom: 19, shard: 2, shards: 32 }
+          - { zoom: 19, shard: 3, shards: 32 }
+          - { zoom: 19, shard: 4, shards: 32 }
+          - { zoom: 19, shard: 5, shards: 32 }
+          - { zoom: 19, shard: 6, shards: 32 }
+          - { zoom: 19, shard: 7, shards: 32 }
+          - { zoom: 19, shard: 8, shards: 32 }
+          - { zoom: 19, shard: 9, shards: 32 }
+          - { zoom: 19, shard: 10, shards: 32 }
+          - { zoom: 19, shard: 11, shards: 32 }
+          - { zoom: 19, shard: 12, shards: 32 }
+          - { zoom: 19, shard: 13, shards: 32 }
+          - { zoom: 19, shard: 14, shards: 32 }
+          - { zoom: 19, shard: 15, shards: 32 }
+          - { zoom: 19, shard: 16, shards: 32 }
+          - { zoom: 19, shard: 17, shards: 32 }
+          - { zoom: 19, shard: 18, shards: 32 }
+          - { zoom: 19, shard: 19, shards: 32 }
+          - { zoom: 19, shard: 20, shards: 32 }
+          - { zoom: 19, shard: 21, shards: 32 }
+          - { zoom: 19, shard: 22, shards: 32 }
+          - { zoom: 19, shard: 23, shards: 32 }
+          - { zoom: 19, shard: 24, shards: 32 }
+          - { zoom: 19, shard: 25, shards: 32 }
+          - { zoom: 19, shard: 26, shards: 32 }
+          - { zoom: 19, shard: 27, shards: 32 }
+          - { zoom: 19, shard: 28, shards: 32 }
+          - { zoom: 19, shard: 29, shards: 32 }
+          - { zoom: 19, shard: 30, shards: 32 }
+          - { zoom: 19, shard: 31, shards: 32 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: dnipro-osm-prepared
+          path: ${{ runner.temp }}/prepared
+      - name: Install rasterizer and R2 uploader
+        run: python -m pip install --disable-pip-version-check 'Pillow>=11,<13' 'shapely>=2,<3' 'mercantile>=1.2,<2' 'awscli>=1.40,<3'
+      - name: Check if this shard was already published
+        id: existing
         if: env.PUBLISH == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          set -euo pipefail
+          endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          marker="s3://${R2_BUCKET}/dnipro/${TILE_VERSION}/_shards/${{ matrix.zoom }}-${{ matrix.shard }}-of-${{ matrix.shards }}.json"
+          if aws s3 cp "$marker" "$RUNNER_TEMP/existing.json" --endpoint-url "$endpoint" --no-progress 2>/dev/null; then
+            python - <<'PY'
+          import json,os
+          d=json.load(open(os.environ['RUNNER_TEMP']+'/existing.json'))
+          assert d['minZoom']==d['maxZoom']==${{ matrix.zoom }}
+          assert d['shardIndex']==${{ matrix.shard }} and d['shardCount']==${{ matrix.shards }}
+          PY
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Already published: $marker"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Generate one zoom/shard
+        if: steps.existing.outputs.skip != 'true'
+        run: |
+          python scripts/build_osm_tiles.py \
+            --city dnipro \
+            --boundary "$RUNNER_TEMP/prepared/boundary.geojson" \
+            --input "$RUNNER_TEMP/prepared/dnipro.geojsonseq" \
+            --out "$RUNNER_TEMP/tiles" \
+            --min-zoom ${{ matrix.zoom }} --max-zoom ${{ matrix.zoom }} \
+            --shard-index ${{ matrix.shard }} --shard-count ${{ matrix.shards }}
+      - name: Publish shard and completion marker
+        if: env.PUBLISH == 'true' && steps.existing.outputs.skip != 'true'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -153,7 +189,70 @@ jobs:
             --exclude '*' --include '*.webp' \
             --content-type image/webp \
             --cache-control 'public, max-age=31536000, immutable'
-          aws s3 cp "$RUNNER_TEMP/tiles/manifest.json" "$destination/manifest.json" \
-            --endpoint-url "$endpoint" --content-type application/json \
-            --cache-control 'public, max-age=31536000, immutable'
-          echo "Published: dnipro/${TILE_VERSION}/"
+          # A marker is written ONLY after successful tile upload. It makes retries idempotent.
+          aws s3 cp "$RUNNER_TEMP/tiles/manifest.json" \
+            "$destination/_shards/${{ matrix.zoom }}-${{ matrix.shard }}-of-${{ matrix.shards }}.json" \
+            --endpoint-url "$endpoint" --no-progress --content-type application/json
+      - name: Save partial manifest for no-publish runs
+        if: env.PUBLISH != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dnipro-shard-${{ matrix.zoom }}-${{ matrix.shard }}
+          path: ${{ runner.temp }}/tiles/manifest.json
+          retention-days: 3
+
+  finalize:
+    needs: render
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: ${{ inputs.publish }}
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+    steps:
+      - name: Combine all published shard manifests
+        run: |
+          set -euo pipefail
+          endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          destination="s3://${R2_BUCKET}/dnipro/${TILE_VERSION}"
+          mkdir -p shards
+          for spec in 13:1 14:1 15:1 16:1 17:2 18:8 19:32; do
+            zoom="${spec%%:*}"
+            total="${spec##*:}"
+            for ((i=0; i<total; i++)); do
+              aws s3 cp "$destination/_shards/${zoom}-${i}-of-${total}.json" \
+                "shards/${zoom}-${i}.json" --endpoint-url "$endpoint" --no-progress
+            done
+          done
+          python - <<'PY'
+          import json, pathlib
+          files=sorted(pathlib.Path('shards').glob('*.json'))
+          assert len(files)==46, f"Expected 46 shard markers; found {len(files)}"
+          parts=[json.loads(p.read_text()) for p in files]
+          counts={}; sizes={}
+          for d in parts:
+              z=str(d['minZoom'])
+              assert d['maxZoom']==d['minZoom']
+              assert d['bounds']==parts[0]['bounds']
+              counts[z]=counts.get(z,0)+d['totalTiles']
+              sizes[z]=sizes.get(z,0)+d['totalBytes']
+          total=sum(counts.values()); bytecount=sum(sizes.values())
+          output={k:v for k,v in parts[0].items() if k not in ('shardIndex','shardCount')}
+          output.update(minZoom=13,maxZoom=19,counts=dict(sorted(counts.items())),
+                        bytesByZoom=dict(sorted(sizes.items())),totalTiles=total,
+                        totalBytes=bytecount,averageTileBytes=round(bytecount/total,1) if total else 0)
+          pathlib.Path('manifest.json').write_text(json.dumps(output,ensure_ascii=False,indent=2))
+          with open(__import__('os').environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              print(f"## Dnipro ${{ inputs.version }}: {total:,} tiles, {bytecount/1024**2:,.2f} MiB",file=f)
+              print('| Zoom | Tiles | MiB |\n|---|---:|---:|',file=f)
+              for z,n in counts.items():
+                  print(f"| {z} | {n:,} | {sizes[z]/1024**2:,.2f} |",file=f)
+          PY
+          aws s3 cp manifest.json "$destination/manifest.json" --endpoint-url "$endpoint" --no-progress \
+            --content-type application/json --cache-control 'public, max-age=31536000, immutable'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dnipro-${{ inputs.version }}-tile-manifest
+          path: manifest.json
+          retention-days: 14
