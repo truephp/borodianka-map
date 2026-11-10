@@ -76,7 +76,7 @@ async def main_async(directory, output, update_fact, delay_seconds, all_streets=
             # but let the schedule validator fail closed.
             try:
                 await page.wait_for_function(
-                    "() => { const schedule = window.DisconSchedule?.fact || (typeof fact === 'object' ? fact : window.fact); return !!(schedule?.data && Object.keys(schedule.data).length); }",
+                    "() => { const app = typeof DisconSchedule !== 'undefined' ? DisconSchedule : window.DisconSchedule; const schedule = app?.fact || (typeof fact !== 'undefined' ? fact : window.fact); return !!(schedule?.data && Object.keys(schedule.data).length); }",
                     timeout=15000,
                 )
             except Exception:
@@ -84,9 +84,14 @@ async def main_async(directory, output, update_fact, delay_seconds, all_streets=
             metadata = await page.evaluate("""() => {
                 const meta = document.querySelector('meta[name="csrf-token"]');
                 const csrfName = document.querySelector('meta[name="csrf-param"]');
-                const schedule = window.DisconSchedule?.fact ||
-                    (typeof fact === 'object' ? fact : window.fact) || null;
-                const publishedUpdate = schedule?.update || null;
+                // DisconSchedule is a top-level lexical variable on DTEK's site,
+                // not necessarily a property of window.
+                const app = typeof DisconSchedule !== 'undefined'
+                    ? DisconSchedule : window.DisconSchedule;
+                const schedule = app?.fact ||
+                    (typeof fact !== 'undefined' ? fact : window.fact) || null;
+                const publishedUpdate = app?.preset?.updateFact ||
+                    schedule?.update || null;
                 const html = document.documentElement.outerHTML;
                 const fallbackFact = html.match(/"updateFact"\\s*:\\s*"([^"]+)"/);
                 return {
@@ -106,6 +111,8 @@ async def main_async(directory, output, update_fact, delay_seconds, all_streets=
                 schedule_fact = parse_schedule_fact(await page.content())
                 if schedule_fact:
                     print("DTEK first-party schedule extracted from inline fact JSON", file=sys.stderr)
+            if isinstance(schedule_fact, dict) and isinstance(schedule_fact.get("data"), dict):
+                print(f"DTEK fact captured: {len(schedule_fact['data'])} days, updated {schedule_fact.get('update')}", file=sys.stderr)
             result["scheduleFact"] = schedule_fact
             fact = metadata["updateFact"] or update_fact
             if not fact:
