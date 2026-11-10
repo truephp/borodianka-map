@@ -36,7 +36,12 @@
 </style></head><body><div id="map"></div>
 <section class="panel"><div class="row"><span class="title">Бородянка · редактор карти</span><button type="button" class="mode-button" id="quickAddress">Адреси: ВИМК</button><button type="button" id="quickPoints">Знайдені адреси: …</button><button id="toggle">Налаштування</button></div>
 <p class="status" id="status" role="status">Завантажуємо локальні OSM-дані…</p>
-<div class="row" style="justify-content:flex-start;margin-top:9px"><label style="margin:0;cursor:pointer"><input type="checkbox" id="dtekOutageMode"> Ознаки відключень ДТЕК</label></div>
+<div class="row" style="justify-content:flex-start;margin-top:9px;gap:10px">
+ <label style="margin:0;cursor:pointer"><input type="checkbox" id="dtekOutageMode"> Прогноз відключень ДТЕК</label>
+ <label style="margin:0">На час <input id="dtekForecastTime" type="datetime-local" step="1800" style="max-width:190px;background:#263b56;color:white;border:1px solid #48617f;padding:6px;border-radius:7px"></label>
+ <button type="button" id="dtekForecastNow">Зараз</button>
+ <span id="dtekForecastStatus" class="small" style="width:100%">Графік ДТЕК завантажується…</span>
+</div>
 <div class="body" id="body" hidden><label><input type="checkbox" id="inspectBuildings"> Діагностика будівель: вибір на карті</label><label><input type="checkbox" id="visicomColorMode"> Забарвлення OSM за збігами адрес із Visicom</label><div id="visicomLegend" class="small">Потрібно завантажити зашифрований файл Visicom.</div><label>Зашифрований JSON Visicom <input id="visicomImport" type="file" accept=".json,application/json"></label><label>URL об'єднаних будівель у R2 <input id="unifiedBuildingsUrl" type="url" placeholder="https://YOUR-R2-DOMAIN/borodianka/data/borodianka-buildings.enc.json" style="width:100%;padding:8px;background:#263b56;color:#fff;border:1px solid #48617f;border-radius:8px"><span class="small">Якщо URL не задано, адреса автоматично визначається з налаштованої R2-підкладки.</span></label><label>Пароль експорту (cookie на 24 години) <input type="password" id="visicomPassword" autocomplete="off" placeholder="VISICOM_EXPORT_PASSWORD"></label><label><input type="checkbox" id="showVisicomPolygons" checked> Показувати полігони Visicom (фіолетові)</label><button type="button" id="clearVisicomPolygons">Очистити полігони Visicom</button><label><input type="checkbox" id="unifiedBuildings"> Показувати єдиний шар будівель (Visicom + OSM без дублікатів)</label><div id="unifiedStats" class="small">Для об'єднання завантаж полігони Visicom.</div><label><input type="checkbox" id="showGeometryMatches"> Порівняти геометрію OSM / Visicom (IoU ≥ 0,65)</label><label>Впевнений IoU: <output id="iouHighValue">0.65</output><input id="iouHigh" type="range" min="0.35" max="0.9" step="0.05" value="0.65"></label><label>Ймовірний IoU: <output id="iouMediumValue">0.30</output><input id="iouMedium" type="range" min="0.15" max="0.6" step="0.05" value="0.30"></label><label>Слабкий IoU: <output id="iouLowValue">0.10</output><input id="iouLow" type="range" min="0.05" max="0.3" step="0.05" value="0.10"></label><label>Перекриття меншого контуру: <output id="overlapValue">0.80</output><input id="overlapThreshold" type="range" min="0.5" max="1" step="0.05" value="0.80"></label><label><input type="checkbox" id="clipVisicomBoundary" checked> Лише полігони в межах Бородянки</label><label><input type="checkbox" id="showGeometryConflicts"> Виділити конфлікти зіставлення</label><div id="conflictStats" class="small">Конфлікти ще не обчислені.</div><div id="geometryStats" class="small">Порівняння ще не виконано.</div><button type="button" id="restoreVisicomCache">Завантажити будівлі з R2 / відкрити кеш</button><div id="visicomImportStatus" class="small">Дані ще не завантажені. Зашифрований файл отримується з R2, розшифровується тільки в браузері.</div><div id="dtekReviewSection" class="dtek-review">
  <p class="small dtek-help">Звіт ДТЕК завантажується автоматично. Для розшифрування потрібен пароль Visicom. Рішення можна експортувати у JSON.</p>
  <div class="dtek-block">
@@ -44,7 +49,7 @@
   <label class="dtek-checkbox"><input type="checkbox" id="dtekReviewEnable"> Підсвітити неоднозначні адреси</label>
   <label class="dtek-checkbox"><input type="checkbox" id="dtekPresenceEnable" checked> Підсвітити будівлі, які є у ДТЕК</label>
   <p class="small dtek-help">Перемикач ознак відключень ДТЕК тепер розташований на головній панелі карти.</p>
-  <p class="small dtek-help" id="dtekOutageLegend" hidden>Синій — у відповіді є код графіка ГПВ; червоний — явна ознака аварійного відключення; сірий — немає однозначної ознаки. Помаранчевий — непідтверджена відповідність адреси. Це <strong>не датчик фактичної наявності електрики</strong>.</p>
+  <p class="small dtek-help" id="dtekOutageLegend" hidden>Жовтий — за графіком немає відключення; синій — відключення за графіком; червоний — активне аварійне відключення за даними ДТЕК; бордовий — аварійне повідомлення без визначених часових меж; світло-синій — можливе відключення; сірий — недостатньо інформації; помаранчевий — непідтверджена адреса; фіолетовий — змішані стани. <strong>Це прогноз, а не фактичне вимірювання електроенергії.</strong></p>
   <div id="dtekPresenceStatus" class="small dtek-status">Адреси ДТЕК завантажуються…</div>
   <p class="small dtek-help">Зелений — однозначна відповідність, помаранчевий — потребує перевірки. Це наявність адреси в довіднику, <strong>не стан електропостачання</strong>.</p>
  </div>
@@ -110,6 +115,7 @@
 <div class="small" id="osmAddressEditStatus"></div>
 </div><button type="button" id="copyInspect">Копіювати координати</button></aside>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.19.0/dist/leaflet-geoman.js"></script><script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+<script src="./scripts/dtek-schedule.js"></script>
 <script>
 const map=L.map('map',{preferCanvas:true,zoomControl:false,maxBoundsViscosity:1}).setView([50.648935,29.9208565],14);
 // Geoman is opt-in: do not register thousands of ordinary map polygons for editing.
@@ -1056,6 +1062,34 @@ const dtekReviewLayer=L.layerGroup().addTo(map);
 const dtekPresenceLayer=L.layerGroup().addTo(map);
 const dtekPresenceEnable=document.getElementById('dtekPresenceEnable');
 const dtekOutageMode=document.getElementById('dtekOutageMode');
+const dtekForecastTime=document.getElementById('dtekForecastTime');
+const dtekForecastNow=document.getElementById('dtekForecastNow');
+const dtekForecastStatus=document.getElementById('dtekForecastStatus');
+let dtekScheduleData=null;
+function resetDtekForecastTime(){
+ dtekForecastTime.value=DtekSchedule.kyivWall(new Date());
+ if(dtekOutageMode.checked)dtekPresenceDraw();
+}
+resetDtekForecastTime();
+dtekForecastTime.addEventListener('input',()=>{if(dtekOutageMode.checked)dtekPresenceDraw();});
+dtekForecastNow.addEventListener('click',resetDtekForecastTime);
+async function loadDtekSchedule(){
+ try{
+  const response=await fetch('./data/dtek-gpv-schedule.json',{cache:'no-store'});
+  if(!response.ok)throw Error('HTTP '+response.status);
+  const json=await response.json();
+  if(json.schemaVersion!==1||json.region!=='kyiv-region'||!json.days)throw Error('невідомий формат графіка');
+  dtekScheduleData=json;
+  dtekForecastStatus.textContent='Графік ДТЕК: '+Object.keys(json.days).join(', ')+
+   ' · джерело оновлено '+(json.dtekPublishedAt||json.sourceUpdatedAt)+
+   ' · показано прогноз, не фактичну напругу';
+ }catch(error){
+  dtekScheduleData=null;
+  dtekForecastStatus.textContent='Графік недоступний: '+error.message+'. Прогноз невідомий.';
+ }
+ if(dtekOutageMode.checked)dtekPresenceDraw();
+}
+loadDtekSchedule();
 const dtekOutageLegend=document.getElementById('dtekOutageLegend');
 const dtekPresenceStatus=document.getElementById('dtekPresenceStatus');
 let dtekPresenceRecords=[],dtekSourceFetchedAt=null;
@@ -1136,11 +1170,21 @@ function dtekOutageCategory(fields){
  if(/(?:^|[^a-zа-яіїєґ])(?:gpv|гпв)\s*[\d.]/i.test(raw))return 'scheduled';
  return 'unknown';
 }
-const dtekOutageColors={emergency:'#a13d43',scheduled:'#3366bf',unknown:'#8392a6',unconfirmed:'#f59e0b',conflict:'#eab308'};
-function dtekPolygonOutageCategory(entries){
- if(!entries.every(entry=>entry.confirmed))return 'unconfirmed';
- const types=new Set(entries.map(({record})=>dtekOutageCategory(record.dtek)));
- return types.size===1?[...types][0]:'conflict';
+const dtekOutageColors={
+ emergency:'#a13d43',emergencyNotice:'#7f1d3a',off:'#3366bf',on:'#f3d24d',
+ possible:'#75b9dc',unknown:'#8392a6',unconfirmed:'#f59e0b',mixed:'#a78bfa'
+};
+const dtekForecastLabels={
+ emergency:'Аварійне відключення в зазначений час',
+ emergencyNotice:'Є аварійне повідомлення, точний час невідомий',
+ off:'За графіком відключення',on:'За графіком відключення немає',
+ possible:'Можливе відключення за графіком',
+ unknown:'Немає достовірного прогнозу',
+ unconfirmed:'Неоднозначна відповідність адреси',
+ mixed:'Різні стани для кількох адрес або груп'
+};
+function dtekPolygonForecast(entries){
+ return DtekSchedule.forPolygon(entries,dtekScheduleData,dtekForecastTime.value);
 }
 function dtekPresenceDraw(){
  dtekPresenceLayer.clearLayers();
@@ -1177,12 +1221,12 @@ function dtekPresenceDraw(){
   const confirmed=item.records.every(entry=>entry.confirmed);
   if(confirmed)exactCount++;else candidateCount++;
   features.push(feature);
-  descriptions.set(feature,{key,confirmed,records:item.records,link:item.link,outageCategory:dtekPolygonOutageCategory(item.records)});
+  descriptions.set(feature,{key,confirmed,records:item.records,link:item.link,forecast:dtekPolygonForecast(item.records)});
  }
  L.geoJSON({type:'FeatureCollection',features},{
   style:f=>{
    const d=descriptions.get(f),color=dtekOutageMode.checked
-     ? dtekOutageColors[d?.outageCategory||'unknown']
+     ? dtekOutageColors[d?.forecast?.kind||'unknown']
      : d?.confirmed?'#22c55e':'#f59e0b';
    return {color,weight:2,fillColor:color,fillOpacity:.5};
   },
@@ -1193,8 +1237,10 @@ function dtekPresenceDraw(){
    strong.textContent=[d.link.street,d.link.house].filter(Boolean).join(', ')||'Будівля ДТЕК';
    div.append(strong,document.createElement('br'),document.createTextNode(d.link.source+' #'+d.link.id));
    if(dtekOutageMode.checked){
-    const categoryLabel={emergency:'Є явна ознака аварійного відключення',scheduled:'У ДТЕК зазначено групу ГПВ',unknown:'Немає однозначної ознаки стану електрики',unconfirmed:'Адреса потребує підтвердження',conflict:'Суперечливі ознаки кількох адрес'};
-    const summary=document.createElement('div');summary.textContent=categoryLabel[d.outageCategory]||categoryLabel.unknown;div.append(summary);
+    const summary=document.createElement('div');
+    summary.textContent=(dtekForecastLabels[d.forecast?.kind]||dtekForecastLabels.unknown)+
+      ' · '+dtekForecastTime.value.replace('T',' ')+' (Київ)';
+    div.append(summary);
    }
    for(const entry of d.records){
     const record=entry.record,p=document.createElement('p');
@@ -1211,7 +1257,7 @@ function dtekPresenceDraw(){
   }
  }).addTo(dtekPresenceLayer);
  dtekPresenceStatus.textContent='Підсвічено '+mapped+' контурів: '+exactCount+' однозначних/підтверджених, '+candidateCount+' кандидатів. '+
-  (dtekOutageMode.checked?'Кольори показують лише ознаки у відповіді ДТЕК, не фактичну наявність струму. ':'')+
+  (dtekOutageMode.checked?'Кольори показують прогноз за графіком і адресні аварійні повідомлення, не фактичну наявність струму. ':'')+
   'Адресних записів зі збігами: '+dtekPresenceRecords.length+'.';
 }
 dtekPresenceEnable.addEventListener('change',dtekPresenceDraw);
