@@ -60,12 +60,20 @@ async def main_async(directory, output, update_fact, delay_seconds, all_streets=
                 const fact = window.DisconSchedule?.fact?.update || null;
                 const html = document.documentElement.outerHTML;
                 const fallbackFact = html.match(/"updateFact"\\s*:\\s*"([^"]+)"/);
+                const schedule = window.DisconSchedule?.fact || null;
                 return {
                     csrfToken: meta?.content || null,
                     csrfName: csrfName?.content || '_csrf',
                     updateFact: fact || fallbackFact?.[1] || null,
+                    // Read the public schedule from the SAME DTEK page/session
+                    // used to fetch addresses. No external mirror.
+                    schedule: schedule && typeof schedule === 'object'
+                        ? {data: schedule.data || null, today: schedule.today || null,
+                           update: schedule.update || null}
+                        : null,
                 };
             }""")
+            result["scheduleFact"] = metadata.get("schedule")
             fact = metadata["updateFact"] or update_fact
             if not fact:
                 raise RuntimeError("Missing updateFact: provide current DTEK value using --update-fact")
