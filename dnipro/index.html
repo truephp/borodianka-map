@@ -85,7 +85,7 @@
       }
       document.getElementById('settingsToggle').addEventListener('click',()=>showSettings(settings.hidden));
       function updateLayer(){
-        const useR2=selectedSource==='r2' && map.getZoom()>=13;
+        const useR2=selectedSource==='r2' && map.getZoom()>=11;
         const next=useR2?r2Layer:osm;
         if(activeLayer!==next){
           if(activeLayer)map.removeLayer(activeLayer);
@@ -93,7 +93,7 @@
           activeLayer.addTo(map);
         }
         status.textContent=selectedSource==='r2'
-          ?(useR2?'Підкладка: OSM WebP з R2 · zoom 13–19':'Масштаб менше 13: OSM онлайн · збільшіть масштаб для R2')
+          ?(useR2?'Підкладка: OSM WebP з R2 · zoom 11–19':'Масштаб менше 11: OSM онлайн · збільшіть масштаб для R2')
           :'Підкладка: OpenStreetMap · без даних ДТЕК';
       }
       function activate(source,url){
@@ -102,11 +102,16 @@
         if(r2Layer){if(activeLayer===r2Layer){map.removeLayer(r2Layer);activeLayer=null}r2Layer=null}
         if(source==='r2'){
           r2Layer=L.tileLayer(url+'/{z}/{x}/{y}.webp',{
-            minZoom:13,maxZoom:19,tileSize:256,
+            minZoom:11,maxZoom:19,tileSize:256,
             attribution:'&copy; OpenStreetMap contributors (ODbL) · локально згенеровані тайли'
           });
           r2Layer.on('tileerror',()=>{
-            if(activeLayer===r2Layer)status.textContent='Не вдалося завантажити R2-тайли. Перевірте адресу та доступність файлів.';
+            if(activeLayer===r2Layer){
+              status.textContent='Частина R2-тайлів недоступна; тимчасово показано OSM онлайн.';
+              map.removeLayer(r2Layer);
+              activeLayer=osm;
+              osm.addTo(map);
+            }
           });
         }
         updateLayer();
