@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/dtek-all-addresses.yml'
       - 'scripts/fetch_dtek_shared_houses.py'
+      - 'scripts/build_dtek_status_snapshot.py'
       - 'scripts/match_dtek_buildings.py'
       - 'scripts/match_dtek_streets.py'
       - 'scripts/test_match_dtek_buildings.py'
@@ -54,6 +55,32 @@ jobs:
             --delay-seconds 1.5 \
             --update-fact "$DTEK_FACT" \
             --output "$RUNNER_TEMP/dtek-borodianka-all-houses.json"
+      - name: Build encrypted DTEK house-status snapshot
+        id: status-snapshot
+        if: steps.dtek.outcome == 'success'
+        env:
+          VISICOM_EXPORT_PASSWORD: ${{ secrets.VISICOM_EXPORT_PASSWORD }}
+        run: |
+          python scripts/build_dtek_status_snapshot.py \
+            --input "$RUNNER_TEMP/dtek-borodianka-all-houses.json" \
+            --output "$RUNNER_TEMP/dtek-house-statuses.enc.json" \
+            --summary "$RUNNER_TEMP/dtek-house-statuses-summary.json"
+      - name: Publish complete encrypted house statuses to R2
+        if: steps.status-snapshot.outcome == 'success'
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          set -euo pipefail
+          test -s "$RUNNER_TEMP/dtek-house-statuses.enc.json"
+          aws s3 cp "$RUNNER_TEMP/dtek-house-statuses.enc.json" \
+            "s3://${R2_BUCKET}/borodianka/data/dtek-house-statuses.enc.json" \
+            --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
+            --no-progress --content-type application/json \
+            --cache-control 'no-store'
       - name: Apply cumulative OSM corrections for DTEK matching
         if: always()
         run: |
@@ -139,9 +166,11 @@ jobs:
             ${{ runner.temp }}/dtek-all-osm-summary.json
             ${{ runner.temp }}/dtek-all-unified-matches.enc.json
             ${{ runner.temp }}/dtek-all-unified-summary.json
+            ${{ runner.temp }}/dtek-house-statuses-summary.json
       - name: Mark incomplete run
         if: always()
         run: |
           test "${{ steps.dtek.outcome }}" = success
           test "${{ steps.osm.outcome }}" = success
           test "${{ steps.visicom.outcome }}" = success
+          test "${{ steps.status-snapshot.outcome }}" = success
