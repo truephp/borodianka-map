@@ -161,7 +161,14 @@ function buildStableStreetLabels(){
  stableStreetLabels=[];
  if(zoom<14||!roadFeatures.length)return;
  const options=[];
+ const viewport=map.getBounds().pad(.65);
+ const minLat=viewport.getSouth(),maxLat=viewport.getNorth(),minLon=viewport.getWest(),maxLon=viewport.getEast();
+ const size=map.getSize(),origin=map.getPixelOrigin();
+ const minX=origin.x-size.x*.65,maxX=origin.x+size.x*1.65,minY=origin.y-size.y*.65,maxY=origin.y+size.y*1.65;
  for(const f of roadFeatures){
+  // Filter before project(), candidate construction and overlap checks.
+  const coords=f.geometry?.coordinates;
+  if(!coords||!coords.some(([lon,lat])=>lat>=minLat&&lat<=maxLat&&lon>=minLon&&lon<=maxLon))continue;
   const name=String(f.properties?.name||'').trim();
   if(!name||name==='Без назви'||f.geometry?.type!=='LineString'||f.geometry.coordinates.length<2)continue;
   const width=streetLabelMeasure.measureText(name).width;
@@ -182,6 +189,7 @@ function buildStableStreetLabels(){
    const segment=sliceRoadForLabel(points,start,start+needed);
    const pos=roadLabelPosition(segment);
    if(!pos||pos.length<width+24)continue;
+   if(pos.mid.x<minX||pos.mid.x>maxX||pos.mid.y<minY||pos.mid.y>maxY)continue;
    options.push({name,points:segment,pos,width,id:String(f.properties?.id||''),length:whole.length});
   }
  }
@@ -272,7 +280,7 @@ function renderStreetLabels(){
       });
       map.on('zoomstart',()=>{streetLabelZooming=true;streetLabelSVG.style.visibility='hidden'});
       map.on('zoomend',()=>{streetLabelZooming=false;stableStreetLabelZoom=null;renderStreetLabels()});
-      map.on('moveend resize',renderStreetLabels);
+      map.on('moveend resize',()=>{stableStreetLabelZoom=null;renderStreetLabels()});
       function updateLayer(){
         const next=selectedSource==='r2'?r2Layer:osm;
         if(activeLayer!==next){
