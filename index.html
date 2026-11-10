@@ -42,6 +42,8 @@
   <div class="dtek-block-title">Відображення та стан зіставлення</div>
   <label class="dtek-checkbox"><input type="checkbox" id="dtekReviewEnable"> Підсвітити неоднозначні адреси</label>
   <label class="dtek-checkbox"><input type="checkbox" id="dtekPresenceEnable" checked> Підсвітити будівлі, які є у ДТЕК</label>
+  <label class="dtek-checkbox"><input type="checkbox" id="dtekOutageMode"> Показати ознаки відключень ДТЕК замість точності зіставлення</label>
+  <p class="small dtek-help" id="dtekOutageLegend" hidden>Синій — у відповіді є код графіка ГПВ; червоний — явна ознака аварійного відключення; сірий — немає однозначної ознаки. Помаранчевий — непідтверджена відповідність адреси. Це <strong>не датчик фактичної наявності електрики</strong>.</p>
   <div id="dtekPresenceStatus" class="small dtek-status">Адреси ДТЕК завантажуються…</div>
   <p class="small dtek-help">Зелений — однозначна відповідність, помаранчевий — потребує перевірки. Це наявність адреси в довіднику, <strong>не стан електропостачання</strong>.</p>
  </div>
@@ -1052,6 +1054,8 @@ const dtekReviewDecisionStatus=document.getElementById('dtekReviewDecisionStatus
 const dtekReviewLayer=L.layerGroup().addTo(map);
 const dtekPresenceLayer=L.layerGroup().addTo(map);
 const dtekPresenceEnable=document.getElementById('dtekPresenceEnable');
+const dtekOutageMode=document.getElementById('dtekOutageMode');
+const dtekOutageLegend=document.getElementById('dtekOutageLegend');
 const dtekPresenceStatus=document.getElementById('dtekPresenceStatus');
 let dtekPresenceRecords=[],dtekSourceFetchedAt=null;
 const dtekHouseFields=['cek','start_date','end_date','sub_type','sub_type_reason','type','voluntarily'];
@@ -1121,8 +1125,25 @@ const dtekStatusLabels={
  candidate_street_type:'Неоднозначний тип вулиці',
  candidate_street_and_house_format:'Тип вулиці та номер потребують перевірки'
 };
+// Conservative visual categories: never infer power availability from
+// blank DTEK fields, a GPV group or an incomplete matching decision.
+function dtekOutageCategory(fields){
+ if(!fields||typeof fields!=='object')return 'unknown';
+ const raw=[fields.type,fields.sub_type,fields.sub_type_reason].flat(Infinity)
+  .filter(value=>typeof value==='string').join(' ').toLowerCase();
+ if(/аварійн|аварийн|emergency|accident/.test(raw))return 'emergency';
+ if(/(?:^|[^a-zа-яіїєґ])(?:gpv|гпв)\s*[\d.]/i.test(raw))return 'scheduled';
+ return 'unknown';
+}
+const dtekOutageColors={emergency:'#a13d43',scheduled:'#3366bf',unknown:'#8392a6',unconfirmed:'#f59e0b',conflict:'#eab308'};
+function dtekPolygonOutageCategory(entries){
+ if(!entries.every(entry=>entry.confirmed))return 'unconfirmed';
+ const types=new Set(entries.map(({record})=>dtekOutageCategory(record.dtek)));
+ return types.size===1?[...types][0]:'conflict';
+}
 function dtekPresenceDraw(){
  dtekPresenceLayer.clearLayers();
+ dtekOutageLegend.hidden=!dtekOutageMode.checked;
  if(!dtekPresenceEnable.checked)return;
  if(!dtekPresenceRecords.length){
   dtekPresenceStatus.textContent='Звіт ДТЕК ще не розшифровано.';
@@ -1155,11 +1176,13 @@ function dtekPresenceDraw(){
   const confirmed=item.records.every(entry=>entry.confirmed);
   if(confirmed)exactCount++;else candidateCount++;
   features.push(feature);
-  descriptions.set(feature,{key,confirmed,records:item.records,link:item.link});
+  descriptions.set(feature,{key,confirmed,records:item.records,link:item.link,outageCategory:dtekPolygonOutageCategory(item.records)});
  }
  L.geoJSON({type:'FeatureCollection',features},{
   style:f=>{
-   const d=descriptions.get(f),color=d?.confirmed?'#22c55e':'#f59e0b';
+   const d=descriptions.get(f),color=dtekOutageMode.checked
+     ? dtekOutageColors[d?.outageCategory||'unknown']
+     : d?.confirmed?'#22c55e':'#f59e0b';
    return {color,weight:2,fillColor:color,fillOpacity:.5};
   },
   onEachFeature:(f,layer)=>{
@@ -1168,6 +1191,10 @@ function dtekPresenceDraw(){
    const div=document.createElement('div'),strong=document.createElement('strong');
    strong.textContent=[d.link.street,d.link.house].filter(Boolean).join(', ')||'Будівля ДТЕК';
    div.append(strong,document.createElement('br'),document.createTextNode(d.link.source+' #'+d.link.id));
+   if(dtekOutageMode.checked){
+    const categoryLabel={emergency:'Є явна ознака аварійного відключення',scheduled:'У ДТЕК зазначено групу ГПВ',unknown:'Немає однозначної ознаки стану електрики',unconfirmed:'Адреса потребує підтвердження',conflict:'Суперечливі ознаки кількох адрес'};
+    const summary=document.createElement('div');summary.textContent=categoryLabel[d.outageCategory]||categoryLabel.unknown;div.append(summary);
+   }
    for(const entry of d.records){
     const record=entry.record,p=document.createElement('p');
     p.textContent=[record.city,record.street,record.house].join(', ')+' · '+
@@ -1182,9 +1209,12 @@ function dtekPresenceDraw(){
    layer.bindPopup(div);
   }
  }).addTo(dtekPresenceLayer);
- dtekPresenceStatus.textContent='Підсвічено '+mapped+' контурів: '+exactCount+' підтверджених, '+candidateCount+' кандидатів. Усього адресних записів зі збігами: '+dtekPresenceRecords.length+'.';
+ dtekPresenceStatus.textContent='Підсвічено '+mapped+' контурів: '+exactCount+' однозначних/підтверджених, '+candidateCount+' кандидатів. '+
+  (dtekOutageMode.checked?'Кольори показують лише ознаки у відповіді ДТЕК, не фактичну наявність струму. ':'')+
+  'Адресних записів зі збігами: '+dtekPresenceRecords.length+'.';
 }
 dtekPresenceEnable.addEventListener('change',dtekPresenceDraw);
+dtekOutageMode.addEventListener('change',dtekPresenceDraw);
 
 let dtekReviewRecords=[],dtekReviewDecisions=new Map(),dtekReviewSelected=-1;
 const dtekReviewStatuses=new Set(['multiple','candidate_house_format','candidate_street_type','candidate_street_and_house_format']);
