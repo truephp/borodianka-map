@@ -136,6 +136,18 @@ jobs:
           fi
           test -s "$source"
           cp "$source" data/dtek-all-unified-matches.enc.json
+          schedule="$RUNNER_TEMP/dtek-review/dtek-gpv-schedule.json"
+          test -s "$schedule"
+          cp "$schedule" data/dtek-gpv-schedule.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          schedule=json.loads(Path("data/dtek-gpv-schedule.json").read_text(encoding="utf-8"))
+          assert schedule["schemaVersion"] == 1
+          assert schedule["source"] == "https://www.dtek-krem.com.ua/ua/shutdowns"
+          assert schedule["days"]
+          print("First-party DTEK fact schedule published to Pages")
+          PY
           python - <<'PY'
           import json
           with open("data/dtek-all-unified-matches.enc.json", encoding="utf-8") as f:
