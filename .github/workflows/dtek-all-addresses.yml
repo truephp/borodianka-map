@@ -7,6 +7,7 @@ on:
       - '.github/workflows/dtek-all-addresses.yml'
       - 'scripts/fetch_dtek_shared_houses.py'
       - 'scripts/build_dtek_status_snapshot.py'
+      - 'scripts/test_dtek_status_snapshot.py'
       - 'scripts/match_dtek_buildings.py'
       - 'scripts/match_dtek_streets.py'
       - 'scripts/test_match_dtek_buildings.py'
@@ -39,7 +40,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Test DTEK normalizers
-        run: python -m unittest scripts.test_match_dtek_buildings scripts.test_compare_dtek_shared_houses -v
+        run: python -m unittest scripts.test_match_dtek_buildings scripts.test_compare_dtek_shared_houses scripts.test_dtek_status_snapshot -v
       - name: Install browser and libraries
         run: |
           python -m pip install --disable-pip-version-check 'playwright>=1.50,<2' 'cryptography>=43,<47' 'shapely>=2,<3' 'awscli>=1.40,<3'
