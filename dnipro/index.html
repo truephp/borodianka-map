@@ -22,6 +22,8 @@
     .details{margin-top:10px;border-top:1px solid #456078}
     .hint,.status{color:#adbed0;font-size:12px;line-height:1.5;margin:8px 0 0}
     .status{overflow-wrap:anywhere}
+    .street-label-overlay{position:absolute;overflow:visible;pointer-events:none;z-index:650}
+    .street-label-text{font:11px system-ui,sans-serif;fill:#e6edf6;stroke:#101a27;stroke-width:3.2px;stroke-linejoin:round;paint-order:stroke fill;letter-spacing:.05px;pointer-events:none}
     .actions{display:flex;align-items:center;gap:8px;margin-top:10px}
     @media(max-width:480px){.panel{top:8px;left:8px;padding:10px;max-width:calc(100vw - 16px)}}
   </style>
@@ -38,6 +40,7 @@
           <option value="r2">Наші OSM WebP-тайли (R2)</option>
         </select>
       </label>
+      <label><input type="checkbox" id="streetLabels" checked> Підписи назв вулиць (zoom 14–19)</label>
       <label>Публічна URL-адреса набору тайлів Дніпра
         <input id="tilesUrl" type="url" spellcheck="false" placeholder="https://tiles.example.com/dnipro/v1">
       </label>
@@ -65,6 +68,10 @@
       let selectedSource='osm';
       let selectedUrl='';
       let r2Layer=null;
+      let roadFeatures=[];
+      let roadsUrlLoaded='';
+      let roadsLoadToken=0;
+      const labelsToggle=document.getElementById('streetLabels');
       const initial=new URLSearchParams(location.search);
       let saved={};
       try{saved=JSON.parse(localStorage.getItem(storageKey)||'{}')||{}}catch{}
@@ -84,6 +91,188 @@
         if(visible)urlField.focus();
       }
       document.getElementById('settingsToggle').addEventListener('click',()=>showSettings(settings.hidden));
+// Road names are an SVG textPath drawn ON the OSM road centreline.
+// The SVG lives in Leaflet's overlayPane so it pans with the map without a plugin.
+const streetLabelNS='http://www.w3.org/2000/svg';
+const streetLabelSVG=document.createElementNS(streetLabelNS,'svg');
+streetLabelSVG.setAttribute('class','street-label-overlay');
+streetLabelSVG.setAttribute('aria-hidden','true');
+map.getPanes().overlayPane.appendChild(streetLabelSVG);
+const streetLabelMeasure=document.createElement('canvas').getContext('2d');
+streetLabelMeasure.font='11px system-ui, sans-serif';
+// The set of label anchors is calculated in world pixels for the zoom level,
+// NEVER from clipped/visible road portions. Panning only changes SVG coordinates.
+let stableStreetLabelZoom=null,stableStreetLabels=[],streetLabelRenderVersion=0;
+let streetLabelZooming=false;
+function finishStreetLabelZoom(){
+ if(streetLabelZooming || false)return;
+ renderStreetLabels();
+}
+function roadLabelPosition(points){
+ let length=0;
+ for(let i=1;i<points.length;i++)length+=points[i-1].distanceTo(points[i]);
+ if(!length)return null;
+ let travelled=0;
+ for(let i=1;i<points.length;i++){
+  const seg=points[i-1].distanceTo(points[i]);
+  if(travelled+seg>=length/2){
+   const t=(length/2-travelled)/seg;
+   const mid=points[i-1].add(points[i].subtract(points[i-1]).multiplyBy(t));
+   const start=points[i-1],end=points[i];
+   return {mid,angle:Math.atan2(end.y-start.y,end.x-start.x),length};
+  }
+  travelled+=seg;
+ }
+ return null;
+}
+function roadLabelRect(position,width){
+ const {mid,angle}=position,cos=Math.cos(angle),sin=Math.sin(angle);
+ return {center:mid,axis:[{x:cos,y:sin},{x:-sin,y:cos}],half:[width/2+10,11]};
+}
+function roadLabelsOverlap(a,b){
+ for(const axis of [...a.axis,...b.axis]){
+  const delta=Math.abs((a.center.x-b.center.x)*axis.x+(a.center.y-b.center.y)*axis.y);
+  const extent=rect=>rect.half[0]*Math.abs(rect.axis[0].x*axis.x+rect.axis[0].y*axis.y)+rect.half[1]*Math.abs(rect.axis[1].x*axis.x+rect.axis[1].y*axis.y);
+  if(delta>extent(a)+extent(b))return false;
+ }
+ return true;
+}
+function sliceRoadForLabel(points,startDistance,endDistance){
+ const result=[];
+ let total=0;
+ for(let i=1;i<points.length;i++){
+  const a=points[i-1],b=points[i],length=a.distanceTo(b),next=total+length;
+  if(length>0&&next>=startDistance&&total<=endDistance){
+   const from=Math.max(0,(startDistance-total)/length);
+   const to=Math.min(1,(endDistance-total)/length);
+   const first=a.add(b.subtract(a).multiplyBy(from)),last=a.add(b.subtract(a).multiplyBy(to));
+   if(!result.length||result[result.length-1].distanceTo(first)>.01)result.push(first);
+   if(last.distanceTo(result[result.length-1])>.01)result.push(last);
+  }
+  total=next;
+  if(total>=endDistance)break;
+ }
+ return result;
+}
+function buildStableStreetLabels(){
+ const zoom=map.getZoom();
+ if(stableStreetLabelZoom===zoom)return;
+ stableStreetLabelZoom=zoom;
+ stableStreetLabels=[];
+ if(zoom<14||!roadFeatures.length)return;
+ const options=[];
+ for(const f of roadFeatures){
+  const name=String(f.properties?.name||'').trim();
+  if(!name||name==='Без назви'||f.geometry?.type!=='LineString'||f.geometry.coordinates.length<2)continue;
+  const width=streetLabelMeasure.measureText(name).width;
+  let points=f.geometry.coordinates.map(([lon,lat])=>map.project([lat,lon],zoom));
+  const first=points[0],last=points[points.length-1];
+  if(first.x>last.x||(Math.abs(first.x-last.x)<1&&first.y<last.y))points=points.reverse();
+  const whole=roadLabelPosition(points);
+  const needed=width+36;
+  if(!whole||whole.length<needed)continue;
+  // Each long OSM way gets multiple fixed anchors. Short ways get one.
+  // Spacing is in world pixels at this zoom; it does not depend on the viewport.
+  const spacing=Math.max(360,width*2.7);
+  const count=Math.max(1,Math.round(whole.length/spacing));
+  const pad=needed/2;
+  for(let n=0;n<count;n++){
+   const center=whole.length*(n+.5)/count;
+   const start=Math.max(0,Math.min(whole.length-needed,center-pad));
+   const segment=sliceRoadForLabel(points,start,start+needed);
+   const pos=roadLabelPosition(segment);
+   if(!pos||pos.length<width+24)continue;
+   options.push({name,points:segment,pos,width,id:String(f.properties?.id||''),length:whole.length});
+  }
+ }
+ // Stable ordering: long streets first, then fixed tie-breaks.
+ options.sort((a,b)=>b.length-a.length||a.name.localeCompare(b.name,'uk')||a.id.localeCompare(b.id)||a.pos.mid.x-b.pos.mid.x||a.pos.mid.y-b.pos.mid.y);
+ const occupied=[],byName=new Map();
+ for(const candidate of options){
+  const previous=byName.get(candidate.name)||[];
+  // Avoid duplicated labels where adjoining OSM ways form the same street.
+  if(previous.some(p=>p.distanceTo(candidate.pos.mid)<Math.max(250,candidate.width*2.2)))continue;
+  const rect=roadLabelRect(candidate.pos,candidate.width);
+  if(occupied.some(other=>roadLabelsOverlap(rect,other)))continue;
+  stableStreetLabels.push(candidate);
+  occupied.push(rect);
+  previous.push(candidate.pos.mid);
+  byName.set(candidate.name,previous);
+ }
+}
+function renderStreetLabels(){
+ if(streetLabelZooming || false){
+  streetLabelSVG.style.visibility='hidden';
+  return;
+ }
+ streetLabelSVG.replaceChildren();
+ streetLabelSVG.style.visibility='visible';
+ if(selector.value!=='r2'||!document.getElementById('streetLabels').checked||map.getZoom()<14||!roadFeatures.length)return;
+ buildStableStreetLabels();
+ const sz=map.getSize(),w=sz.x,h=sz.y;
+ streetLabelSVG.setAttribute('width',w);
+ streetLabelSVG.setAttribute('height',h);
+ streetLabelSVG.setAttribute('viewBox','0 0 '+w+' '+h);
+ L.DomUtil.setPosition(streetLabelSVG,map.containerPointToLayerPoint(L.point(0,0)));
+ const origin=map.getPixelOrigin(),pane=map._getMapPanePos();
+ const toScreen=p=>L.point(p.x-origin.x+pane.x,p.y-origin.y+pane.y);
+ const defs=document.createElementNS(streetLabelNS,'defs');
+ streetLabelSVG.appendChild(defs);
+ let count=0;
+ for(const entry of stableStreetLabels){
+  const center=toScreen(entry.pos.mid);
+  if(center.x<0||center.x>w||center.y<0||center.y>h)continue;
+  const id='dnipro-street-label-path-'+count;
+  const path=document.createElementNS(streetLabelNS,'path');
+  path.setAttribute('id',id);
+  path.setAttribute('d',entry.points.map((p,i)=>{
+   const pt=toScreen(p);
+   return (i?'L':'M')+pt.x.toFixed(1)+' '+pt.y.toFixed(1);
+  }).join(' '));
+  defs.appendChild(path);
+  const label=document.createElementNS(streetLabelNS,'text');
+  label.setAttribute('class','street-label-text');
+  label.setAttribute('text-anchor','middle');
+  label.setAttribute('dy','-3');
+  const textPath=document.createElementNS(streetLabelNS,'textPath');
+  textPath.setAttribute('href','#'+id);
+  textPath.setAttribute('startOffset','50%');
+  textPath.textContent=entry.name;
+  label.appendChild(textPath);
+  streetLabelSVG.appendChild(label);
+  count++;
+ }
+}
+
+      // Road geometry is loaded once per R2 dataset. OSM raster tiles do not embed names.
+      async function loadRoadLabels(url){
+        const token=++roadsLoadToken;
+        if(!url){roadFeatures=[];stableStreetLabelZoom=null;renderStreetLabels();return}
+        if(roadsUrlLoaded===url){renderStreetLabels();return}
+        try{
+          const response=await fetch(url+'/roads.geojson',{mode:'cors'});
+          if(!response.ok)throw new Error('HTTP '+response.status);
+          const data=await response.json();
+          if(token!==roadsLoadToken)return;
+          if(data.type!=='FeatureCollection'||!Array.isArray(data.features))throw new Error('Некоректний GeoJSON');
+          roadFeatures=data.features;
+          roadsUrlLoaded=url;
+          stableStreetLabelZoom=null;
+          renderStreetLabels();
+        }catch(error){
+          if(token!==roadsLoadToken)return;
+          roadFeatures=[];roadsUrlLoaded='';
+          stableStreetLabelZoom=null;renderStreetLabels();
+          status.textContent='Підкладка R2 працює, але підписи вулиць недоступні: '+error.message;
+        }
+      }
+      labelsToggle.addEventListener('change',()=>{
+        if(labelsToggle.checked&&selectedSource==='r2')loadRoadLabels(selectedUrl);
+        else renderStreetLabels();
+      });
+      map.on('zoomstart',()=>{streetLabelZooming=true;streetLabelSVG.style.visibility='hidden'});
+      map.on('zoomend',()=>{streetLabelZooming=false;stableStreetLabelZoom=null;renderStreetLabels()});
+      map.on('moveend resize',renderStreetLabels);
       function updateLayer(){
         const next=selectedSource==='r2'?r2Layer:osm;
         if(activeLayer!==next){
@@ -111,6 +300,8 @@
           });
         }
         updateLayer();
+        if(source==='r2'&&labelsToggle.checked)loadRoadLabels(url);
+        else {++roadsLoadToken;roadFeatures=[];roadsUrlLoaded='';stableStreetLabelZoom=null;renderStreetLabels()}
       }
       map.on('zoomend',updateLayer);
       function apply(){
