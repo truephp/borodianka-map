@@ -1,0 +1,69 @@
+name: Publish Dnipro OSM street labels → R2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/dnipro-road-labels.yml'
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Successful Dnipro tiles run containing dnipro-osm-prepared (within 3-day retention)
+        required: true
+        default: '42782720679'
+        type: string
+      version:
+        description: R2 version folder
+        required: true
+        default: v1
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SOURCE_RUN_ID: ${{ github.event_name == 'push' && '42782720679' || inputs.source_run_id }}
+      TILE_VERSION: ${{ github.event_name == 'push' && 'v1' || inputs.version }}
+      R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+      R2_BUCKET: ${{ vars.R2_BUCKET }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dnipro-osm-prepared
+          run-id: ${{ env.SOURCE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/prepared
+      - name: Export named road centerlines
+        run: |
+          test -s "$RUNNER_TEMP/prepared/dnipro.geojsonseq"
+          python3 scripts/export_dnipro_roads.py \
+            --input "$RUNNER_TEMP/prepared/dnipro.geojsonseq" \
+            --output "$RUNNER_TEMP/roads.geojson"
+      - name: Publish to existing Dnipro version
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os,re
+          assert re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9._-]{0,49}',os.environ['TILE_VERSION'])
+          for k in ('R2_ACCOUNT_ID','R2_BUCKET','AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY'):
+              assert os.environ.get(k),k+' is missing'
+          PY
+          aws s3 cp "$RUNNER_TEMP/roads.geojson" \
+            "s3://${R2_BUCKET}/dnipro/${TILE_VERSION}/roads.geojson" \
+            --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
+            --no-progress --content-type application/geo+json \
+            --cache-control 'public, max-age=3600'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dnipro-osm-road-labels
+          path: ${{ runner.temp }}/roads.geojson
+          retention-days: 14
