@@ -1,29 +1,18 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import vm from 'node:vm';
 
+// The former "GPV group present" classifier was replaced by time-specific
+// evaluation in scripts/dtek-schedule.js. Check the new integration points.
 const html=readFileSync('index.html','utf8');
+const engine=readFileSync('scripts/dtek-schedule.js','utf8');
 assert.match(html,/id="dtekOutageMode"/);
+assert.match(html,/id="dtekForecastTime"/);
+assert.match(html,/id="dtekForecastNow"/);
 assert.match(html,/dtekOutageMode\.addEventListener\('change',dtekPresenceDraw\)/);
-const start=html.indexOf('function dtekOutageCategory(fields){');
-const end=html.indexOf('function dtekPresenceDraw(){',start);
-assert.ok(start>=0&&end>start,'DTEK classification helpers not found');
-const sandbox={};
-vm.createContext(sandbox);
-vm.runInContext(html.slice(start,end)+
-  '\nthis.classify=dtekOutageCategory;this.polygon=dtekPolygonOutageCategory;',sandbox);
-
-const classify=sandbox.classify;
-assert.equal(classify({type:'',sub_type:'',sub_type_reason:['GPV1.2']}),'scheduled');
-assert.equal(classify({type:'Аварійне відключення'}),'emergency');
-assert.equal(classify({type:'',sub_type:'',sub_type_reason:[]}), 'unknown');
-assert.equal(classify({}), 'unknown');
-assert.equal(classify(null),'unknown');
-const polygon=sandbox.polygon;
-assert.equal(polygon([{confirmed:true,record:{dtek:{sub_type_reason:['GPV1.2']}}}]),'scheduled');
-assert.equal(polygon([{confirmed:false,record:{dtek:{sub_type_reason:['GPV1.2']}}}]),'unconfirmed');
-assert.equal(polygon([
- {confirmed:true,record:{dtek:{sub_type_reason:['GPV1.2']}}},
- {confirmed:true,record:{dtek:{type:'Аварійне відключення'}}}
-]),'conflict');
-console.log('DTEK outage-signal classification: OK');
+assert.match(html,/DtekSchedule\.forPolygon\(entries,dtekScheduleData,dtekForecastTime.value\)/);
+assert.match(html,/dtekOutageColors\[d\?\.forecast\?\.kind\|\|'unknown'\]/);
+assert.match(engine,/function emergency\(raw,wall\)/);
+assert.match(engine,/function stateAt\(raw,data,wall\)/);
+assert.match(engine,/if\(em==='active'\)return \{kind:'emergency'/);
+assert.match(engine,/if\(!sourceFresh\(data,wall\)\)return \{kind:'unknown'/);
+console.log('DTEK outage forecast integration: OK');
