@@ -59,7 +59,7 @@ async def main_async(directory, output, update_fact, delay_seconds, all_streets=
             # but let the schedule validator fail closed.
             try:
                 await page.wait_for_function(
-                    "() => !!(window.DisconSchedule?.fact?.data && Object.keys(window.DisconSchedule.fact.data).length)",
+                    "() => { const schedule = window.DisconSchedule?.fact || (typeof fact === 'object' ? fact : window.fact); return !!(schedule?.data && Object.keys(schedule.data).length); }",
                     timeout=15000,
                 )
             except Exception:
@@ -67,14 +67,15 @@ async def main_async(directory, output, update_fact, delay_seconds, all_streets=
             metadata = await page.evaluate("""() => {
                 const meta = document.querySelector('meta[name="csrf-token"]');
                 const csrfName = document.querySelector('meta[name="csrf-param"]');
-                const fact = window.DisconSchedule?.fact?.update || null;
+                const schedule = window.DisconSchedule?.fact ||
+                    (typeof fact === 'object' ? fact : window.fact) || null;
+                const publishedUpdate = schedule?.update || null;
                 const html = document.documentElement.outerHTML;
                 const fallbackFact = html.match(/"updateFact"\\s*:\\s*"([^"]+)"/);
-                const schedule = window.DisconSchedule?.fact || null;
                 return {
                     csrfToken: meta?.content || null,
                     csrfName: csrfName?.content || '_csrf',
-                    updateFact: fact || fallbackFact?.[1] || null,
+                    updateFact: publishedUpdate || fallbackFact?.[1] || null,
                     // Read the public schedule from the SAME DTEK page/session
                     // used to fetch addresses. No external mirror.
                     schedule: schedule && typeof schedule === 'object'
