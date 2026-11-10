@@ -52,7 +52,7 @@
       'use strict';
       const storageKey='dnipro-osm-map-v1';
       const center=[48.4647,35.0462];
-      const map=L.map('map',{zoomControl:true,preferCanvas:true}).setView(center,11);
+      const map=L.map('map',{zoomControl:true,preferCanvas:true,minZoom:11,maxZoom:19}).setView(center,11);
       const osm=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
         minZoom:3,maxZoom:19,maxNativeZoom:19,
         attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -85,16 +85,15 @@
       }
       document.getElementById('settingsToggle').addEventListener('click',()=>showSettings(settings.hidden));
       function updateLayer(){
-        const useR2=selectedSource==='r2' && map.getZoom()>=11;
-        const next=useR2?r2Layer:osm;
+        const next=selectedSource==='r2'?r2Layer:osm;
         if(activeLayer!==next){
           if(activeLayer)map.removeLayer(activeLayer);
           activeLayer=next;
           activeLayer.addTo(map);
         }
         status.textContent=selectedSource==='r2'
-          ?(useR2?'Підкладка: OSM WebP з R2 · zoom 11–19':'Масштаб менше 11: OSM онлайн · збільшіть масштаб для R2')
-          :'Підкладка: OpenStreetMap · без даних ДТЕК';
+          ?'Підкладка: OSM WebP з R2 · zoom 11–19'
+          :'Підкладка: OpenStreetMap (обрано вручну) · без даних ДТЕК';
       }
       function activate(source,url){
         selectedSource=source;
@@ -107,10 +106,7 @@
           });
           r2Layer.on('tileerror',()=>{
             if(activeLayer===r2Layer){
-              status.textContent='Частина R2-тайлів недоступна; тимчасово показано OSM онлайн.';
-              map.removeLayer(r2Layer);
-              activeLayer=osm;
-              osm.addTo(map);
+              status.textContent='Помилка завантаження тайлів R2. Автоматичне перемикання на онлайн OSM вимкнено.';
             }
           });
         }
