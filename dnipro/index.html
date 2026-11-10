@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Дніпро — OSM карта</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    html,body,#map{margin:0;height:100%;width:100%}
+    body{font:14px system-ui,sans-serif;background:#162231;color:#e5edf7}
+    #map{position:absolute;inset:0}
+    .leaflet-container{background:#162231}
+    .panel{position:absolute;z-index:1000;top:12px;left:12px;max-width:min(380px,calc(100vw - 24px));background:#101b2aef;border:1px solid #456078;border-radius:12px;box-shadow:0 5px 25px #0008;padding:12px;box-sizing:border-box}
+    .heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+    strong{font-size:17px}
+    button,select,input{font:inherit}
+    button,select,input[type=url]{background:#263b56;border:1px solid #60768c;border-radius:7px;color:white;padding:7px}
+    button{cursor:pointer}
+    input[type=url]{width:100%;box-sizing:border-box;margin-top:5px}
+    label{display:block;margin-top:10px}
+    .details[hidden]{display:none}
+    .details{margin-top:10px;border-top:1px solid #456078}
+    .hint,.status{color:#adbed0;font-size:12px;line-height:1.5;margin:8px 0 0}
+    .status{overflow-wrap:anywhere}
+    .actions{display:flex;align-items:center;gap:8px;margin-top:10px}
+    @media(max-width:480px){.panel{top:8px;left:8px;padding:10px;max-width:calc(100vw - 16px)}}
+  </style>
+</head>
+<body>
+  <div id="map" aria-label="Карта Дніпра"></div>
+  <section class="panel">
+    <div class="heading"><strong>Дніпро · OSM карта</strong><button type="button" id="settingsToggle" aria-expanded="false">Налаштування</button></div>
+    <div id="status" class="status" role="status">Завантажуємо карту…</div>
+    <div id="settings" class="details" hidden>
+      <label>Картографічна підкладка
+        <select id="basemap">
+          <option value="osm">OpenStreetMap (онлайн)</option>
+          <option value="r2">Наші OSM WebP-тайли (R2)</option>
+        </select>
+      </label>
+      <label>Публічна URL-адреса набору тайлів Дніпра
+        <input id="tilesUrl" type="url" spellcheck="false" placeholder="https://tiles.example.com/dnipro/v1">
+      </label>
+      <p class="hint">Введіть адресу папки <code>dnipro/v1</code> без <code>/{z}/{x}/{y}.webp</code>. Ніякі ключі доступу не потрібні. Адреса зберігається лише у браузері.</p>
+      <div class="actions"><button type="button" id="apply">Застосувати</button><button type="button" id="reset">Скинути</button></div>
+      <p class="hint">Жодних даних ДТЕК або Visicom. Растеризовані OSM-тайли не містять окремого шару будівель.</p>
+    </div>
+  </section>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    (() => {
+      'use strict';
+      const storageKey='dnipro-osm-map-v1';
+      const center=[48.4647,35.0462];
+      const map=L.map('map',{zoomControl:true,preferCanvas:true}).setView(center,13);
+      const osm=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
+        minZoom:3,maxZoom:19,maxNativeZoom:19,
+        attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      });
+      const status=document.getElementById('status');
+      const selector=document.getElementById('basemap');
+      const urlField=document.getElementById('tilesUrl');
+      const settings=document.getElementById('settings');
+      let activeLayer=null;
+      const initial=new URLSearchParams(location.search);
+      let saved={};
+      try{saved=JSON.parse(localStorage.getItem(storageKey)||'{}')||{}}catch{}
+      selector.value=initial.get('source')==='r2'?'r2':saved.source==='r2'?'r2':'osm';
+      urlField.value=initial.get('tiles')||saved.url||'';
+      function normalizeUrl(raw){
+        const value=raw.trim().replace(/\/+$/,'');
+        if(!value)return '';
+        const url=new URL(value);
+        if(!['http:','https:'].includes(url.protocol))throw new Error('Потрібна HTTP(S)-адреса');
+        if(/[{}]/.test(url.href))throw new Error('Вкажіть адресу папки, без шаблону координат тайлів');
+        return url.href.replace(/\/$/,'');
+      }
+      function showSettings(visible){
+        settings.hidden=!visible;
+        document.getElementById('settingsToggle').setAttribute('aria-expanded',String(visible));
+        if(visible)urlField.focus();
+      }
+      document.getElementById('settingsToggle').addEventListener('click',()=>showSettings(settings.hidden));
+      function activate(source,url){
+        if(activeLayer){map.removeLayer(activeLayer);activeLayer=null}
+        if(source==='r2'){
+          activeLayer=L.tileLayer(url+'/{z}/{x}/{y}.webp',{
+            minZoom:13,maxZoom:19,tileSize:256,
+            attribution:'&copy; OpenStreetMap contributors (ODbL) · локально згенеровані тайли'
+          });
+          status.textContent='Підкладка: OSM WebP з R2 · zoom 13–19';
+        }else{
+          activeLayer=osm;
+          status.textContent='Підкладка: OpenStreetMap · без даних ДТЕК';
+        }
+        let errors=0;
+        activeLayer.on('tileerror',()=>{
+          errors++;
+          if(errors===1)status.textContent='Не вдалося завантажити тайли. Перевірте публічний URL, CORS і доступність файлів у R2.';
+        });
+        activeLayer.addTo(map);
+      }
+      function apply(){
+        try{
+          const source=selector.value;
+          const url=normalizeUrl(urlField.value);
+          if(source==='r2'&&!url){showSettings(true);status.textContent='Для R2 введіть публічну адресу dnipro/v1';return}
+          localStorage.setItem(storageKey,JSON.stringify({source,url}));
+          activate(source,url);
+        }catch(error){showSettings(true);status.textContent='Помилка адреси: '+error.message}
+      }
+      document.getElementById('apply').addEventListener('click',apply);
+      document.getElementById('reset').addEventListener('click',()=>{
+        localStorage.removeItem(storageKey);
+        selector.value='osm';urlField.value='';activate('osm','');
+      });
+      if(selector.value==='r2'&&!urlField.value)showSettings(true);
+      apply();
+    })();
+  </script>
+</body>
+</html>
