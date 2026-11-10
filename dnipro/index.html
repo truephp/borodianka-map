@@ -52,7 +52,7 @@
       'use strict';
       const storageKey='dnipro-osm-map-v1';
       const center=[48.4647,35.0462];
-      const map=L.map('map',{zoomControl:true,preferCanvas:true}).setView(center,13);
+      const map=L.map('map',{zoomControl:true,preferCanvas:true}).setView(center,11);
       const osm=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
         minZoom:3,maxZoom:19,maxNativeZoom:19,
         attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -62,6 +62,9 @@
       const urlField=document.getElementById('tilesUrl');
       const settings=document.getElementById('settings');
       let activeLayer=null;
+      let selectedSource='osm';
+      let selectedUrl='';
+      let r2Layer=null;
       const initial=new URLSearchParams(location.search);
       let saved={};
       try{saved=JSON.parse(localStorage.getItem(storageKey)||'{}')||{}}catch{}
@@ -81,25 +84,34 @@
         if(visible)urlField.focus();
       }
       document.getElementById('settingsToggle').addEventListener('click',()=>showSettings(settings.hidden));
+      function updateLayer(){
+        const useR2=selectedSource==='r2' && map.getZoom()>=13;
+        const next=useR2?r2Layer:osm;
+        if(activeLayer!==next){
+          if(activeLayer)map.removeLayer(activeLayer);
+          activeLayer=next;
+          activeLayer.addTo(map);
+        }
+        status.textContent=selectedSource==='r2'
+          ?(useR2?'Підкладка: OSM WebP з R2 · zoom 13–19':'Масштаб менше 13: OSM онлайн · збільшіть масштаб для R2')
+          :'Підкладка: OpenStreetMap · без даних ДТЕК';
+      }
       function activate(source,url){
-        if(activeLayer){map.removeLayer(activeLayer);activeLayer=null}
+        selectedSource=source;
+        selectedUrl=url;
+        if(r2Layer){if(activeLayer===r2Layer){map.removeLayer(r2Layer);activeLayer=null}r2Layer=null}
         if(source==='r2'){
-          activeLayer=L.tileLayer(url+'/{z}/{x}/{y}.webp',{
+          r2Layer=L.tileLayer(url+'/{z}/{x}/{y}.webp',{
             minZoom:13,maxZoom:19,tileSize:256,
             attribution:'&copy; OpenStreetMap contributors (ODbL) · локально згенеровані тайли'
           });
-          status.textContent='Підкладка: OSM WebP з R2 · zoom 13–19';
-        }else{
-          activeLayer=osm;
-          status.textContent='Підкладка: OpenStreetMap · без даних ДТЕК';
+          r2Layer.on('tileerror',()=>{
+            if(activeLayer===r2Layer)status.textContent='Не вдалося завантажити R2-тайли. Перевірте адресу та доступність файлів.';
+          });
         }
-        let errors=0;
-        activeLayer.on('tileerror',()=>{
-          errors++;
-          if(errors===1)status.textContent='Не вдалося завантажити тайли. Перевірте публічний URL, CORS і доступність файлів у R2.';
-        });
-        activeLayer.addTo(map);
+        updateLayer();
       }
+      map.on('zoomend',updateLayer);
       function apply(){
         try{
           const source=selector.value;
