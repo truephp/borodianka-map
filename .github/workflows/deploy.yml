@@ -42,6 +42,8 @@ jobs:
         run: node scripts/test_dtek_building_popup.mjs
       - name: Verify outage signal classification avoids false power claims
         run: node scripts/test_dtek_outage_coloring.mjs
+      - name: Verify DTEK GPV time forecast and emergency precedence
+        run: node scripts/test_dtek_schedule_forecast.mjs
       - name: Verify centralized Feature patch rendering
         run: node scripts/test_feature_patch_view.mjs
       - name: Validate inline map JavaScript syntax before deployment
