@@ -54,6 +54,16 @@ async def main_async(directory, output, update_fact, delay_seconds, all_streets=
                         await page.wait_for_timeout(2000)
                         navigation = await page.reload(wait_until="domcontentloaded", timeout=60000)
                         print(f"DTEK reload HTTP: {navigation.status if navigation else 'none'}", file=sys.stderr)
+            # The site may set the schedule after DOMContentLoaded/CSRF injection.
+            # Keep address collection functional even if the schedule is absent,
+            # but let the schedule validator fail closed.
+            try:
+                await page.wait_for_function(
+                    "() => !!(window.DisconSchedule?.fact?.data && Object.keys(window.DisconSchedule.fact.data).length)",
+                    timeout=15000,
+                )
+            except Exception:
+                print("DTEK fact.data was not initialized in 15 seconds", file=sys.stderr)
             metadata = await page.evaluate("""() => {
                 const meta = document.querySelector('meta[name="csrf-token"]');
                 const csrfName = document.querySelector('meta[name="csrf-param"]');
