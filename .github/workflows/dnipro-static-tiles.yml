@@ -84,6 +84,8 @@ jobs:
       max-parallel: 8
       matrix:
         include:
+          - { zoom: 11, shard: 0, shards: 1 }
+          - { zoom: 12, shard: 0, shards: 1 }
           - { zoom: 13, shard: 0, shards: 1 }
           - { zoom: 14, shard: 0, shards: 1 }
           - { zoom: 15, shard: 0, shards: 1 }
@@ -217,7 +219,7 @@ jobs:
           endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
           destination="s3://${R2_BUCKET}/dnipro/${TILE_VERSION}"
           mkdir -p shards
-          for spec in 13:1 14:1 15:1 16:1 17:2 18:8 19:32; do
+          for spec in 11:1 12:1 13:1 14:1 15:1 16:1 17:2 18:8 19:32; do
             zoom="${spec%%:*}"
             total="${spec##*:}"
             for ((i=0; i<total; i++)); do
@@ -228,7 +230,7 @@ jobs:
           python - <<'PY'
           import json, pathlib
           files=sorted(pathlib.Path('shards').glob('*.json'))
-          assert len(files)==46, f"Expected 46 shard markers; found {len(files)}"
+          assert len(files)==48, f"Expected 48 shard markers; found {len(files)}"
           parts=[json.loads(p.read_text()) for p in files]
           counts={}; sizes={}
           for d in parts:
@@ -239,7 +241,7 @@ jobs:
               sizes[z]=sizes.get(z,0)+d['totalBytes']
           total=sum(counts.values()); bytecount=sum(sizes.values())
           output={k:v for k,v in parts[0].items() if k not in ('shardIndex','shardCount')}
-          output.update(minZoom=13,maxZoom=19,counts=dict(sorted(counts.items())),
+          output.update(minZoom=11,maxZoom=19,counts=dict(sorted(counts.items())),
                         bytesByZoom=dict(sorted(sizes.items())),totalTiles=total,
                         totalBytes=bytecount,averageTileBytes=round(bytecount/total,1) if total else 0)
           pathlib.Path('manifest.json').write_text(json.dumps(output,ensure_ascii=False,indent=2))
