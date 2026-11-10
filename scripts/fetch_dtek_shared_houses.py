@@ -17,6 +17,23 @@ import sys
 from playwright.async_api import async_playwright
 from compare_dtek_shared_houses import CITIES, shared_streets
 
+def parse_schedule_fact(html):
+    """Parse an inline JSON `fact = {...}` declaration from the first-party page.
+
+    JSONDecoder.raw_decode stops at the complete object and avoids greedy regex
+    matches across unrelated script tags. Do not execute any inline JavaScript.
+    """
+    decoder = json.JSONDecoder()
+    for found in re.finditer(r"(?:\\b|\\.)fact\\s*=\\s*(?=\\{)", html):
+        try:
+            data, _ = decoder.raw_decode(html[found.end():])
+        except (ValueError, TypeError):
+            continue
+        if isinstance(data, dict) and isinstance(data.get("data"), dict):
+            return {"data": data["data"], "today": data.get("today"), "update": data.get("update")}
+    return None
+
+
 BASE_URL = "https://www.dtek-krem.com.ua"
 PAGE_URL = BASE_URL + "/ua/shutdowns"
 
@@ -84,7 +101,12 @@ async def main_async(directory, output, update_fact, delay_seconds, all_streets=
                         : null,
                 };
             }""")
-            result["scheduleFact"] = metadata.get("schedule")
+            schedule_fact = metadata.get("schedule")
+            if not isinstance(schedule_fact, dict) or not isinstance(schedule_fact.get("data"), dict):
+                schedule_fact = parse_schedule_fact(await page.content())
+                if schedule_fact:
+                    print("DTEK first-party schedule extracted from inline fact JSON", file=sys.stderr)
+            result["scheduleFact"] = schedule_fact
             fact = metadata["updateFact"] or update_fact
             if not fact:
                 raise RuntimeError("Missing updateFact: provide current DTEK value using --update-fact")
