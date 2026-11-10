@@ -20,7 +20,7 @@ const source={
  days:{[date]:{'GPV1.2':slots}}
 };
 const raw={sub_type_reason:['GPV1.2']};
-assert.deepEqual(api.decodeGroup(raw),['GPV1.2']);
+assert.equal([...api.decodeGroup(raw)].join(','),'GPV1.2');
 assert.equal(api.stateAt(raw,source,date+'T12:15').kind,'off');
 assert.equal(api.stateAt(raw,source,date+'T12:45').kind,'on');
 assert.equal(api.stateAt(raw,source,date+'T13:15').kind,'on');
