@@ -139,19 +139,23 @@ jobs:
           test -s "$source"
           cp "$source" data/dtek-all-unified-matches.enc.json
           schedule="$RUNNER_TEMP/dtek-review/dtek-gpv-schedule.json"
-          if [ -s "$schedule" ]; then
-            cp "$schedule" data/dtek-gpv-schedule.json
-            python - <<'PY'
-          import json
+          if [ -s "$schedule" ] && python - "$schedule" <<'PY'
+          import json, sys
           from pathlib import Path
-          schedule=json.loads(Path("data/dtek-gpv-schedule.json").read_text(encoding="utf-8"))
-          assert schedule["schemaVersion"] == 1
-          assert schedule["source"] == "https://www.dtek-krem.com.ua/ua/shutdowns"
-          assert schedule["days"]
-          print("First-party DTEK fact schedule published to Pages")
+          try:
+              schedule=json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+              valid=(schedule.get("schemaVersion")==1 and
+                     schedule.get("source")=="https://www.dtek-krem.com.ua/ua/shutdowns" and
+                     bool(schedule.get("days")))
+          except Exception:
+              valid=False
+          sys.exit(0 if valid else 1)
           PY
+          then
+            cp "$schedule" data/dtek-gpv-schedule.json
+            echo "First-party DTEK fact schedule published to Pages"
           else
-            echo "::warning::Latest DTEK artifact predates first-party fact capture; forecasts stay unknown until next successful DTEK run."
+            echo "::warning::First-party fact schedule not in latest DTEK artifact; omit forecast until next valid capture."
           fi
           python - <<'PY'
           import json
