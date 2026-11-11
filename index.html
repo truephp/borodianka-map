@@ -1046,7 +1046,7 @@ fetch('./data/address-points.geojson',{cache:'no-cache'}).then(r=>r.ok?r.json():
 fetch('./data/buildings.original.geojson',{cache:'no-cache'})
  .then(r=>r.ok?r.json():null).then(data=>{originalBuildingData=data;})
  .catch(err=>console.warn('Raw OSM baseline unavailable:',err));
-Promise.all([fetch('./data/boundary.geojson').then(r=>r.ok?r.json():null).catch(()=>null),fetch('./data/buildings.geojson',{cache:'no-cache'}).then(r=>r.ok?r.json():null).catch(()=>null)]).then(([b,build])=>{boundaryData=b;buildingData=build;recalculateGeometryMatches();renderVisicomPolygons();calculateMatches();refreshVisicomLegend();if(build){const total=build.features.length,complete=build.features.filter(f=>f.properties.street&&f.properties.housenumber).length,partial=build.features.filter(f=>(f.properties.street||f.properties.housenumber)&&!(f.properties.street&&f.properties.housenumber)).length;addressStats.textContent='Адресні теги будівель: '+complete+' повних, '+partial+' часткових, '+(total-complete-partial)+' без адреси. Зелений — повна адреса, жовтий — часткова, рожевий — адреси немає. У режимі діагностики будівлі видно на будь-якому масштабі.';}renderArea();if(b){const bounds=L.geoJSON(b).getBounds();if(bounds.isValid()){map.setMaxBounds(bounds.pad(0.18));map.fitBounds(bounds,{maxZoom:14,padding:[16,16]})}}if(features.length)render();});fetch('./data/roads.geojson',{cache:'no-cache'}).then(r=>{if(!r.ok)throw Error('HTTP '+r.status+'; спочатку запусти workflow Import OSM data');return r.json()}).then(data=>{features=(data.features||[]).filter(f=>f.geometry?.type==='LineString');status.textContent='Завантажено '+features.length+' сегментів вулиць'+(buildingData?' · '+buildingData.features.length+' будівель':'')+'. Кольори демонстраційні.';if(!features.length)throw Error('Файл доріг порожній');stableStreetLabelZoom=null;render();renderStreetLabels();const bounds=L.geoJSON(data).getBounds();if(bounds.isValid() && !boundaryData)map.fitBounds(bounds.pad(.04),{maxZoom:14})}).catch(e=>{status.textContent='Дороги не завантажено: '+e.message;status.style.color='#ff9c9c';body.hidden=false});
+Promise.all([fetch('./data/boundary.geojson').then(r=>r.ok?r.json():null).catch(()=>null),fetch('./data/buildings.geojson',{cache:'no-cache'}).then(r=>r.ok?r.json():null).catch(()=>null)]).then(([b,build])=>{boundaryData=b;buildingData=build;recalculateGeometryMatches();renderVisicomPolygons();calculateMatches();refreshVisicomLegend();if(build){const total=build.features.length,complete=build.features.filter(f=>f.properties.street&&f.properties.housenumber).length,partial=build.features.filter(f=>(f.properties.street||f.properties.housenumber)&&!(f.properties.street&&f.properties.housenumber)).length;addressStats.textContent='Адресні теги будівель: '+complete+' повних, '+partial+' часткових, '+(total-complete-partial)+' без адреси. Зелений — повна адреса, жовтий — часткова, рожевий — адреси немає. У режимі діагностики будівлі видно на будь-якому масштабі.';}renderArea();drawDtekUnaddressed();if(b){const bounds=L.geoJSON(b).getBounds();if(bounds.isValid()){map.setMaxBounds(bounds.pad(0.18));map.fitBounds(bounds,{maxZoom:14,padding:[16,16]})}}if(features.length)render();});fetch('./data/roads.geojson',{cache:'no-cache'}).then(r=>{if(!r.ok)throw Error('HTTP '+r.status+'; спочатку запусти workflow Import OSM data');return r.json()}).then(data=>{features=(data.features||[]).filter(f=>f.geometry?.type==='LineString');status.textContent='Завантажено '+features.length+' сегментів вулиць'+(buildingData?' · '+buildingData.features.length+' будівель':'')+'. Кольори демонстраційні.';if(!features.length)throw Error('Файл доріг порожній');stableStreetLabelZoom=null;render();renderStreetLabels();const bounds=L.geoJSON(data).getBounds();if(bounds.isValid() && !boundaryData)map.fitBounds(bounds.pad(.04),{maxZoom:14})}).catch(e=>{status.textContent='Дороги не завантажено: '+e.message;status.style.color='#ff9c9c';body.hidden=false});
 
 // DTEK REVIEW PILOT: an encrypted Actions artifact is decrypted only in this tab.
 // No Visicom-derived plaintext is persisted or uploaded. Manual approvals are
@@ -1186,8 +1186,43 @@ const dtekForecastLabels={
 function dtekPolygonForecast(entries){
  return DtekSchedule.forPolygon(entries,dtekScheduleData,dtekForecastTime.value);
 }
+// In forecast mode, every building without a usable address must be gray,
+// even if there is no decrypted matching report or Visicom dataset yet.
+const dtekUnaddressedPane=map.createPane('dtekUnaddressed');
+dtekUnaddressedPane.style.zIndex='480';
+dtekUnaddressedPane.style.pointerEvents='none';
+const dtekUnaddressedLayer=L.layerGroup().addTo(map);
+function dtekBuildingHasAddress(feature){
+ const p=feature?.properties||{};
+ if(p.source==='visicom'){
+  return !!(String(p.street||'').trim()&&String(p.name||p.housenumber||p.number||'').trim())||
+   (Array.isArray(p.addresses)&&p.addresses.some(a=>a?.street&&a?.housenumber));
+ }
+ return osmPolygonAddresses(feature).some(a=>a?.street&&a?.housenumber);
+}
+function dtekUnaddressedFeatures(){
+ // Prefer the pre-merged data to avoid drawing overlapping OSM/Visicom outlines.
+ if(premergedBuildings?.features)return (currentDataset(premergedBuildings)?.features||[]).filter(inSettlement);
+ const osm=(currentDataset(buildingData)?.features||[]).filter(f=>
+  !isUnified()||!unifiedHiddenOSM.has(String(f.properties?.id)));
+ const visicom=(currentDataset(visicomPolygons)?.features||[]).filter(inSettlement);
+ return [...osm,...visicom];
+}
+function drawDtekUnaddressed(){
+ dtekUnaddressedLayer.clearLayers();
+ if(!dtekOutageMode.checked)return;
+ const missing=dtekUnaddressedFeatures().filter(f=>
+  ['Polygon','MultiPolygon'].includes(f.geometry?.type)&&!dtekBuildingHasAddress(f));
+ if(!missing.length)return;
+ L.geoJSON({type:'FeatureCollection',features:missing},{
+  pane:'dtekUnaddressed',
+  interactive:false,
+  style:{color:'#8392a6',weight:1.3,fillColor:'#8392a6',fillOpacity:.72,interactive:false}
+ }).addTo(dtekUnaddressedLayer);
+}
 function dtekPresenceDraw(){
  dtekPresenceLayer.clearLayers();
+ drawDtekUnaddressed();
  dtekOutageLegend.hidden=!dtekOutageMode.checked;
  if(!dtekPresenceEnable.checked)return;
  if(!dtekPresenceRecords.length){
