@@ -24,7 +24,7 @@ def parse_schedule_fact(html):
     matches across unrelated script tags. Do not execute any inline JavaScript.
     """
     decoder = json.JSONDecoder()
-    for found in re.finditer(r"(?:\\b|\\.)fact\\s*=\\s*(?=\\{)", html):
+    for found in re.finditer(r"(?:\b|\.)fact\s*=\s*(?=\{)", html):
         try:
             data, _ = decoder.raw_decode(html[found.end():])
         except (ValueError, TypeError):
