@@ -55,11 +55,25 @@ jobs:
         env:
           DTEK_FACT: '04.11.2026 20:36'
         run: |
+          set +e
           python scripts/fetch_dtek_shared_houses.py \
             --all-streets \
             --delay-seconds 1.5 \
             --update-fact "$DTEK_FACT" \
             --output "$RUNNER_TEMP/dtek-borodianka-all-houses.json"
+          code=$?
+          set -e
+          test "$code" -eq 0 -o "$code" -eq 2
+          python - "$RUNNER_TEMP/dtek-borodianka-all-houses.json" <<'PY'
+          import json,sys
+          from pathlib import Path
+          records=json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["responses"]
+          errors=[x for x in records if "response" not in x]
+          successes=len(records)-len(errors)
+          assert records and len(errors)<=2 and successes>=len(records)*0.95, "DTEK response coverage below the publication threshold"
+          if errors:
+              print("::warning::Partial DTEK capture: "+", ".join(f"{x['city']} / {x['street']}" for x in errors))
+          PY
       - name: Normalize schedule from the same DTEK fact capture
         id: gpvschedule
         if: steps.dtek.outcome == 'success'
@@ -76,8 +90,9 @@ jobs:
           python scripts/build_dtek_status_snapshot.py \
             --input "$RUNNER_TEMP/dtek-borodianka-all-houses.json" \
             --output "$RUNNER_TEMP/dtek-house-statuses.enc.json" \
-            --summary "$RUNNER_TEMP/dtek-house-statuses-summary.json"
-      - name: Publish complete encrypted house statuses to R2
+            --summary "$RUNNER_TEMP/dtek-house-statuses-summary.json" \
+            --allow-partial
+      - name: Publish encrypted house statuses to R2 (partial captures flagged)
         if: steps.status-snapshot.outcome == 'success'
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
@@ -109,11 +124,16 @@ jobs:
         continue-on-error: true
         run: |
           test -s "$RUNNER_TEMP/dtek-borodianka-all-houses.json"
+          set +e
           python scripts/match_dtek_buildings.py \
             --dtek "$RUNNER_TEMP/dtek-borodianka-all-houses.json" \
             --osm "$RUNNER_TEMP/buildings.patched.geojson" \
             --output "$RUNNER_TEMP/dtek-all-osm-matches.json" \
             --summary "$RUNNER_TEMP/dtek-all-osm-summary.json"
+          code=$?
+          set -e
+          test "$code" -eq 0 -o "$code" -eq 2
+          test -s "$RUNNER_TEMP/dtek-all-osm-matches.json"
       - name: Download encrypted unified buildings (read-only)
         if: always() && steps.osm.outcome == 'success'
         env:
@@ -136,12 +156,17 @@ jobs:
         env:
           VISICOM_EXPORT_PASSWORD: ${{ secrets.VISICOM_EXPORT_PASSWORD }}
         run: |
+          set +e
           python scripts/match_dtek_buildings.py \
             --dtek "$RUNNER_TEMP/dtek-borodianka-all-houses.json" \
             --visicom-encrypted "$RUNNER_TEMP/borodianka-buildings.enc.json" \
             --manual-decisions "data/borodianka-manual-overrides.json" \
             --output "$RUNNER_TEMP/dtek-all-unified-matches.enc.json" \
             --summary "$RUNNER_TEMP/dtek-all-unified-summary.json"
+          code=$?
+          set -e
+          test "$code" -eq 0 -o "$code" -eq 2
+          test -s "$RUNNER_TEMP/dtek-all-unified-matches.enc.json"
       - name: Summarize all streets
         if: always()
         run: |
