@@ -41,6 +41,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Validate DTEK Python syntax before installing browser
+        run: python -m py_compile scripts/fetch_dtek_shared_houses.py scripts/fetch_dtek_gpv_schedule.py scripts/build_dtek_status_snapshot.py scripts/match_dtek_buildings.py
       - name: Test DTEK normalizers
         run: python -m unittest scripts.test_match_dtek_buildings scripts.test_compare_dtek_shared_houses scripts.test_dtek_status_snapshot scripts.test_dtek_gpv_schedule -v
       - name: Install browser and libraries
