@@ -175,7 +175,7 @@ async def main_async(directory, output, update_fact, delay_seconds, all_streets=
                             clean = {"result": True, "data": clean_data}
                             result["responses"].append({"city": city, "street": street, "response": clean})
                             print(f"{city} / {street}: {len(keys)} house numbers", file=sys.stderr)
-                            break
+                                break
                         except Exception as exc:
                             if attempt < 2:
                                 print(f"RETRY {attempt + 1}/2 {city} / {street}: {type(exc).__name__}: {exc}", file=sys.stderr)
