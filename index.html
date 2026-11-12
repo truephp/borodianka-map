@@ -1092,7 +1092,17 @@ async function loadDtekSchedule(){
 loadDtekSchedule();
 const dtekOutageLegend=document.getElementById('dtekOutageLegend');
 const dtekPresenceStatus=document.getElementById('dtekPresenceStatus');
-let dtekPresenceRecords=[],dtekSourceFetchedAt=null;
+let dtekPresenceRecords=[],dtekSourceFetchedAt=null,dtekSourceErrors=[];
+function dtekReportIsStale(){
+ const timestamp=Date.parse(dtekSourceFetchedAt||'');
+ return !Number.isFinite(timestamp)||Date.now()-timestamp>12*3600000||timestamp>Date.now()+15*60000;
+}
+function dtekReportWarning(){
+ const out=[];
+ if(dtekReportIsStale())out.push('Застарілі дані ДТЕК: цей звіт не можна використовувати як актуальний стан.');
+ if(dtekSourceErrors.length)out.push('Не отримано відповіді для '+dtekSourceErrors.length+' вулиць: '+dtekSourceErrors.map(r=>r.city+' / '+r.street).join('; ')+'. Їхній стан невідомий.');
+ return out.join(' ');
+}
 const dtekHouseFields=['cek','start_date','end_date','sub_type','sub_type_reason','type','voluntarily'];
 function appendDtekFields(popup,record){
  const fields=record.dtek||{};
@@ -1132,6 +1142,8 @@ function appendDtekPopupForBuilding(popup,source,id){
   popup.append(message);
   return;
  }
+ const warning=dtekReportWarning();
+ if(warning){const alert=document.createElement('p');alert.textContent='⚠ '+warning;popup.append(alert);}
  const records=dtekRecordsForPolygon(source,id);
  if(!records.length){
   const message=document.createElement('div');
@@ -1184,6 +1196,7 @@ const dtekForecastLabels={
  mixed:'Різні стани для кількох адрес або груп'
 };
 function dtekPolygonForecast(entries){
+ if(dtekReportIsStale())return {kind:'unknown',reason:'stale_dtek_address_data'};
  return DtekSchedule.forPolygon(entries,dtekScheduleData,dtekForecastTime.value);
 }
 // In forecast mode, every building without a usable address must be gray,
@@ -1291,7 +1304,7 @@ function dtekPresenceDraw(){
    layer.bindPopup(div);
   }
  }).addTo(dtekPresenceLayer);
- dtekPresenceStatus.textContent='Підсвічено '+mapped+' контурів: '+exactCount+' однозначних/підтверджених, '+candidateCount+' кандидатів. '+
+ dtekPresenceStatus.textContent=(dtekReportWarning() ? '⚠ '+dtekReportWarning()+' ' : '')+'Підсвічено '+mapped+' контурів: '+exactCount+' однозначних/підтверджених, '+candidateCount+' кандидатів. '+
   (dtekOutageMode.checked?'Кольори показують прогноз за графіком і адресні аварійні повідомлення, не фактичну наявність струму. ':'')+
   'Адресних записів зі збігами: '+dtekPresenceRecords.length+'.';
 }
@@ -1424,6 +1437,7 @@ async function dtekReviewUseEnvelope(envelope){
  if(report.schemaVersion!==2||!Array.isArray(report.records))throw Error('Непідтримуваний формат звіту: очікується schemaVersion 2');
  const records=report.records.filter(r=>dtekReviewStatuses.has(r.status)&&Array.isArray(r.links)&&r.house&&r.city&&r.street);
  dtekSourceFetchedAt=report.sourceFetchedAt||null;
+ dtekSourceErrors=report.records.filter(r=>r.status==='source_error');
  dtekPresenceRecords=report.records.filter(r=>dtekMatchStatuses.has(r.status)&&Array.isArray(r.links)&&r.links.length&&r.house&&r.city&&r.street);
  dtekReviewRecords=records;
  dtekReviewSelected=-1;
@@ -1434,7 +1448,7 @@ async function dtekReviewUseEnvelope(envelope){
  for(const [i,r] of entries)dtekReviewAddress.add(new Option([r.city,r.street,r.house].join(' · ')+' ['+r.status+']',String(i)));
  dtekReviewEnable.checked=false;
  dtekPresenceDraw();
- dtekReviewStatus.textContent='Завантажено '+records.length+' неоднозначних адрес. Обери адресу або натисни кольоровий контур.';
+ dtekReviewStatus.textContent=(dtekReportWarning() ? '⚠ '+dtekReportWarning()+' ' : '')+'Завантажено '+records.length+' неоднозначних адрес. Обери адресу або натисни кольоровий контур.';
  dtekReviewCount();dtekReviewDisplay();
 }
 async function dtekReviewAutoLoad(){
