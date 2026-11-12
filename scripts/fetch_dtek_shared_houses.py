@@ -3,7 +3,7 @@
 
 Reads the two user-supplied city keys and optionally all listed street strings.
 Uses same-origin POST /ua/ajax with DTEK's standard getHomeNum method and the
-current page's cookies/CSRF. No credential bypass, retries, or proxy rotation.
+current page's cookies/CSRF. No credential bypass or proxy rotation. Failed streets get limited retries.
 Failures are explicit records, not silently empty house-number lists.
 """
 import argparse
@@ -34,11 +34,53 @@ def parse_schedule_fact(html):
     return None
 
 
+async def collect_pairs(pairs, fetch_pair, delay_seconds=1.5, workers=2):
+    """Bounded per-worker pacing, preserving original street ordering."""
+    if not 1 <= workers <= 4:
+        raise ValueError("workers must be 1..4")
+    if delay_seconds < 1:
+        raise ValueError("delay_seconds must be at least 1")
+    queue = asyncio.Queue()
+    for index, pair in enumerate(pairs):
+        queue.put_nowait((index, pair))
+    results = [None] * len(pairs)
+
+    async def worker():
+        while True:
+            try:
+                index, (city, street) = queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return
+            try:
+                for attempt in range(3):
+                    try:
+                        results[index] = await fetch_pair(city, street)
+                        break
+                    except Exception as exc:
+                        if attempt < 2:
+                            print(f"RETRY {attempt + 1}/2 {city} / {street}: "
+                                  f"{type(exc).__name__}: {exc}", file=sys.stderr)
+                            await asyncio.sleep(1.8 * (attempt + 1))
+                        else:
+                            results[index] = {"city": city, "street": street,
+                                              "error": str(exc)[:160]}
+                            print(f"FAILED {city} / {street}: "
+                                  f"{type(exc).__name__}: {exc}", file=sys.stderr)
+            finally:
+                queue.task_done()
+                await asyncio.sleep(delay_seconds)
+
+    await asyncio.gather(*(worker() for _ in range(min(workers, len(pairs)))))
+    if any(item is None for item in results):
+        raise RuntimeError("Incomplete concurrent DTEK results")
+    return results
+
+
 BASE_URL = "https://www.dtek-krem.com.ua"
 PAGE_URL = BASE_URL + "/ua/shutdowns"
 
 
-async def main_async(directory, output, update_fact, delay_seconds, all_streets=False):
+async def main_async(directory, output, update_fact, delay_seconds, all_streets=False, workers=2):
     streets = shared_streets(directory)
     pairs = ([(city, street) for city in CITIES for street in directory['streets'][city] if street != 'Без вулиці']
              if all_streets else [(city, street) for street in streets for city in CITIES])
@@ -120,71 +162,65 @@ async def main_async(directory, output, update_fact, delay_seconds, all_streets=
             if not metadata["csrfToken"]:
                 raise RuntimeError("DTEK did not provide a csrf-token meta tag; cannot POST safely")
             print(f"DTEK CSRF present; requesting {len(pairs)} city/street pairs", file=sys.stderr)
-            for city, street in pairs:
-                    for attempt in range(3):
-                        try:
-                            response = await page.evaluate("""async ({city, street, fact, csrfToken, csrfName}) => {
-                                const body = new URLSearchParams();
-                                body.set('method', 'getHomeNum');
-                                body.set('data[0][name]', 'city');
-                                body.set('data[0][value]', city);
-                                body.set('data[1][name]', 'street');
-                                body.set('data[1][value]', street);
-                                body.set('data[2][name]', 'updateFact');
-                                body.set('data[2][value]', fact);
-                                body.set(csrfName, csrfToken);
-                                const r = await fetch('/ua/ajax', {
-                                    method: 'POST',
-                                    headers: {
-                                        'X-CSRF-Token': csrfToken,
-                                        'X-Requested-With': 'XMLHttpRequest',
-                                        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                                        'Accept': 'application/json'
-                                    },
-                                    credentials: 'same-origin',
-                                    body
-                                });
-                                const text = await r.text();
-                                if (!r.ok) throw Error('HTTP ' + r.status);
-                                try { return JSON.parse(text); }
-                                catch { throw Error('Non-JSON AJAX response'); }
-                            }""", {"city": city, "street": street, "fact": fact,
-                                   "csrfToken": metadata["csrfToken"], "csrfName": metadata["csrfName"]})
-                            if response.get("result") is not True:
-                                raise RuntimeError("getHomeNum returned result != true; " +
-                                               str(response.get("message") or response.get("error") or "no explanation")[:100])
-                            data = response.get("data")
-                            if not isinstance(data, (dict, list)):
-                                raise RuntimeError("getHomeNum returned unexpected data shape")
-                            keys = list(data.keys()) if isinstance(data, dict) else data
-                            if not all(isinstance(k, str) for k in keys):
-                                raise RuntimeError("House number list has non-string entries")
-                            # Retain the original seven DTEK per-house outage fields.
-                            # The complete source and matching reports stay in Actions;
-                            # only the final AES-GCM encrypted report is served by Pages.
-                            fields = ("cek", "start_date", "end_date", "sub_type",
-                                      "sub_type_reason", "type", "voluntarily")
-                            if isinstance(data, dict):
-                                clean_data = {
-                                    house: {field: value[field] for field in fields if field in value}
-                                    if isinstance(value, dict) else {}
-                                    for house, value in data.items()
-                                }
-                            else:
-                                clean_data = {house: {} for house in keys}
-                            clean = {"result": True, "data": clean_data}
-                            result["responses"].append({"city": city, "street": street, "response": clean})
-                            print(f"{city} / {street}: {len(keys)} house numbers", file=sys.stderr)
-                            break
-                        except Exception as exc:
-                            if attempt < 2:
-                                print(f"RETRY {attempt + 1}/2 {city} / {street}: {type(exc).__name__}: {exc}", file=sys.stderr)
-                                await page.wait_for_timeout(1800 * (attempt + 1))
-                                continue
-                            result["responses"].append({"city": city, "street": street,
-                                                        "error": str(exc)[:160]})
-                            print(f"FAILED {city} / {street}: {type(exc).__name__}: {exc}", file=sys.stderr)
-                    await page.wait_for_timeout(round(delay_seconds * 1000))
+            async def request_pair(city, street):
+                response = await page.evaluate("""async ({city, street, fact, csrfToken, csrfName}) => {
+                    const body = new URLSearchParams();
+                    body.set('method', 'getHomeNum');
+                    body.set('data[0][name]', 'city');
+                    body.set('data[0][value]', city);
+                    body.set('data[1][name]', 'street');
+                    body.set('data[1][value]', street);
+                    body.set('data[2][name]', 'updateFact');
+                    body.set('data[2][value]', fact);
+                    body.set(csrfName, csrfToken);
+                    const r = await fetch('/ua/ajax', {
+                        method: 'POST',
+                        headers: {
+                            'X-CSRF-Token': csrfToken,
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                            'Accept': 'application/json'
+                        },
+                        credentials: 'same-origin',
+                        body
+                    });
+                    const text = await r.text();
+                    if (!r.ok) throw Error('HTTP ' + r.status);
+                    try { return JSON.parse(text); }
+                    catch { throw Error('Non-JSON AJAX response'); }
+                }""", {"city": city, "street": street, "fact": fact,
+                       "csrfToken": metadata["csrfToken"], "csrfName": metadata["csrfName"]})
+                if response.get("result") is not True:
+                    raise RuntimeError("getHomeNum returned result != true; " +
+                                   str(response.get("message") or response.get("error") or "no explanation")[:100])
+                data = response.get("data")
+                if not isinstance(data, (dict, list)):
+                    raise RuntimeError("getHomeNum returned unexpected data shape")
+                keys = list(data.keys()) if isinstance(data, dict) else data
+                if not all(isinstance(k, str) for k in keys):
+                    raise RuntimeError("House number list has non-string entries")
+                # Retain the original seven DTEK per-house outage fields.
+                # The complete source and matching reports stay in Actions;
+                # only the final AES-GCM encrypted report is served by Pages.
+                fields = ("cek", "start_date", "end_date", "sub_type",
+                          "sub_type_reason", "type", "voluntarily")
+                if isinstance(data, dict):
+                    clean_data = {
+                        house: {field: value[field] for field in fields if field in value}
+                        if isinstance(value, dict) else {}
+                        for house, value in data.items()
+                    }
+                else:
+                    clean_data = {house: {} for house in keys}
+                clean = {"result": True, "data": clean_data}
+                return {"city": city, "street": street, "response": clean}
+                print(f"{city} / {street}: {len(keys)} house numbers", file=sys.stderr)
+            result["responses"] = await collect_pairs(
+                pairs, request_pair, delay_seconds=delay_seconds, workers=workers
+            )
+            errors = sum("error" in item for item in result["responses"])
+            print(f"DTEK street capture: {len(pairs)-errors}/{len(pairs)} successful, "
+                  f"{errors} errors, {workers} workers", file=sys.stderr)
         finally:
             await browser.close()
     Path(output).write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -198,11 +234,14 @@ def main():
     parser.add_argument("--update-fact", default="", help="Actual DTEK updateFact from page, when not embedded")
     parser.add_argument("--delay-seconds", type=float, default=1.3)
     parser.add_argument("--all-streets", action="store_true", help="Query both complete street directories (except Без вулиці)")
+    parser.add_argument("--workers", type=int, default=2, help="Concurrent paced requests (1..4)")
     args = parser.parse_args()
     if args.delay_seconds < 1:
         parser.error("--delay-seconds must be at least 1")
+    if not 1 <= args.workers <= 4:
+        parser.error("--workers must be 1..4")
     directory = json.loads(Path(args.directory).read_text(encoding="utf-8"))
-    code = asyncio.run(main_async(directory, args.output, args.update_fact, args.delay_seconds, args.all_streets))
+    code = asyncio.run(main_async(directory, args.output, args.update_fact, args.delay_seconds, args.all_streets, args.workers))
     raise SystemExit(code)
 
 
