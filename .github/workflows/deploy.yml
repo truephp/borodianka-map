@@ -46,6 +46,8 @@ jobs:
         run: node scripts/test_dtek_schedule_forecast.mjs
       - name: Verify unaddressed buildings stay gray in forecast mode
         run: node scripts/test_dtek_unaddressed_gray.mjs
+      - name: Verify stale DTEK reports cannot claim current power state
+        run: node scripts/test_dtek_stale_reports.mjs
       - name: Verify centralized Feature patch rendering
         run: node scripts/test_feature_patch_view.mjs
       - name: Validate inline map JavaScript syntax before deployment
