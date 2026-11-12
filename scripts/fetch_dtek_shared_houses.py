@@ -121,62 +121,69 @@ async def main_async(directory, output, update_fact, delay_seconds, all_streets=
                 raise RuntimeError("DTEK did not provide a csrf-token meta tag; cannot POST safely")
             print(f"DTEK CSRF present; requesting {len(pairs)} city/street pairs", file=sys.stderr)
             for city, street in pairs:
-                    try:
-                        response = await page.evaluate("""async ({city, street, fact, csrfToken, csrfName}) => {
-                            const body = new URLSearchParams();
-                            body.set('method', 'getHomeNum');
-                            body.set('data[0][name]', 'city');
-                            body.set('data[0][value]', city);
-                            body.set('data[1][name]', 'street');
-                            body.set('data[1][value]', street);
-                            body.set('data[2][name]', 'updateFact');
-                            body.set('data[2][value]', fact);
-                            body.set(csrfName, csrfToken);
-                            const r = await fetch('/ua/ajax', {
-                                method: 'POST',
-                                headers: {
-                                    'X-CSRF-Token': csrfToken,
-                                    'X-Requested-With': 'XMLHttpRequest',
-                                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                                    'Accept': 'application/json'
-                                },
-                                credentials: 'same-origin',
-                                body
-                            });
-                            const text = await r.text();
-                            if (!r.ok) throw Error('HTTP ' + r.status);
-                            try { return JSON.parse(text); }
-                            catch { throw Error('Non-JSON AJAX response'); }
-                        }""", {"city": city, "street": street, "fact": fact,
-                               "csrfToken": metadata["csrfToken"], "csrfName": metadata["csrfName"]})
-                        if response.get("result") is not True:
-                            raise RuntimeError("getHomeNum returned result != true")
-                        data = response.get("data")
-                        if not isinstance(data, (dict, list)):
-                            raise RuntimeError("getHomeNum returned unexpected data shape")
-                        keys = list(data.keys()) if isinstance(data, dict) else data
-                        if not all(isinstance(k, str) for k in keys):
-                            raise RuntimeError("House number list has non-string entries")
-                        # Retain the original seven DTEK per-house outage fields.
-                        # The complete source and matching reports stay in Actions;
-                        # only the final AES-GCM encrypted report is served by Pages.
-                        fields = ("cek", "start_date", "end_date", "sub_type",
-                                  "sub_type_reason", "type", "voluntarily")
-                        if isinstance(data, dict):
-                            clean_data = {
-                                house: {field: value[field] for field in fields if field in value}
-                                if isinstance(value, dict) else {}
-                                for house, value in data.items()
-                            }
-                        else:
-                            clean_data = {house: {} for house in keys}
-                        clean = {"result": True, "data": clean_data}
-                        result["responses"].append({"city": city, "street": street, "response": clean})
-                        print(f"{city} / {street}: {len(keys)} house numbers", file=sys.stderr)
-                    except Exception as exc:
-                        result["responses"].append({"city": city, "street": street,
-                                                    "error": str(exc)[:160]})
-                        print(f"FAILED {city} / {street}: {type(exc).__name__}: {exc}", file=sys.stderr)
+                    for attempt in range(3):
+                        try:
+                            response = await page.evaluate("""async ({city, street, fact, csrfToken, csrfName}) => {
+                                const body = new URLSearchParams();
+                                body.set('method', 'getHomeNum');
+                                body.set('data[0][name]', 'city');
+                                body.set('data[0][value]', city);
+                                body.set('data[1][name]', 'street');
+                                body.set('data[1][value]', street);
+                                body.set('data[2][name]', 'updateFact');
+                                body.set('data[2][value]', fact);
+                                body.set(csrfName, csrfToken);
+                                const r = await fetch('/ua/ajax', {
+                                    method: 'POST',
+                                    headers: {
+                                        'X-CSRF-Token': csrfToken,
+                                        'X-Requested-With': 'XMLHttpRequest',
+                                        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                                        'Accept': 'application/json'
+                                    },
+                                    credentials: 'same-origin',
+                                    body
+                                });
+                                const text = await r.text();
+                                if (!r.ok) throw Error('HTTP ' + r.status);
+                                try { return JSON.parse(text); }
+                                catch { throw Error('Non-JSON AJAX response'); }
+                            }""", {"city": city, "street": street, "fact": fact,
+                                   "csrfToken": metadata["csrfToken"], "csrfName": metadata["csrfName"]})
+                            if response.get("result") is not True:
+                                raise RuntimeError("getHomeNum returned result != true; " +
+                                               str(response.get("message") or response.get("error") or "no explanation")[:100])
+                            data = response.get("data")
+                            if not isinstance(data, (dict, list)):
+                                raise RuntimeError("getHomeNum returned unexpected data shape")
+                            keys = list(data.keys()) if isinstance(data, dict) else data
+                            if not all(isinstance(k, str) for k in keys):
+                                raise RuntimeError("House number list has non-string entries")
+                            # Retain the original seven DTEK per-house outage fields.
+                            # The complete source and matching reports stay in Actions;
+                            # only the final AES-GCM encrypted report is served by Pages.
+                            fields = ("cek", "start_date", "end_date", "sub_type",
+                                      "sub_type_reason", "type", "voluntarily")
+                            if isinstance(data, dict):
+                                clean_data = {
+                                    house: {field: value[field] for field in fields if field in value}
+                                    if isinstance(value, dict) else {}
+                                    for house, value in data.items()
+                                }
+                            else:
+                                clean_data = {house: {} for house in keys}
+                            clean = {"result": True, "data": clean_data}
+                            result["responses"].append({"city": city, "street": street, "response": clean})
+                            print(f"{city} / {street}: {len(keys)} house numbers", file=sys.stderr)
+                            break
+                        except Exception as exc:
+                            if attempt < 2:
+                                print(f"RETRY {attempt + 1}/2 {city} / {street}: {type(exc).__name__}: {exc}", file=sys.stderr)
+                                await page.wait_for_timeout(1800 * (attempt + 1))
+                                continue
+                            result["responses"].append({"city": city, "street": street,
+                                                        "error": str(exc)[:160]})
+                            print(f"FAILED {city} / {street}: {type(exc).__name__}: {exc}", file=sys.stderr)
                     await page.wait_for_timeout(round(delay_seconds * 1000))
         finally:
             await browser.close()
