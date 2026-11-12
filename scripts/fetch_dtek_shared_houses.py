@@ -213,8 +213,8 @@ async def main_async(directory, output, update_fact, delay_seconds, all_streets=
                 else:
                     clean_data = {house: {} for house in keys}
                 clean = {"result": True, "data": clean_data}
-                return {"city": city, "street": street, "response": clean}
                 print(f"{city} / {street}: {len(keys)} house numbers", file=sys.stderr)
+                return {"city": city, "street": street, "response": clean}
             result["responses"] = await collect_pairs(
                 pairs, request_pair, delay_seconds=delay_seconds, workers=workers
             )
