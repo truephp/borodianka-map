@@ -56,6 +56,7 @@ def main():
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--summary", required=True)
+    parser.add_argument("--allow-partial", action="store_true", help="Permit explicitly marked partial snapshot")
     args = parser.parse_args()
     payload = assemble(json.loads(Path(args.input).read_text(encoding="utf-8")))
     summary = {k: payload[k] for k in ("schemaVersion", "source", "fetchedAt", "processedAt",
@@ -63,14 +64,16 @@ def main():
     summary["errorCount"] = len(payload["errors"])
     summary["addressCount"] = len(payload["addresses"])
     Path(args.summary).write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
-    if not payload["complete"]:
+    if not payload["complete"] and not args.allow_partial:
         raise RuntimeError(f"Refusing to publish incomplete DTEK status capture: {len(payload['errors'])} source errors")
+    if not payload["complete"] and (len(payload["errors"]) > 2 or payload["successfulPairs"] < payload["streetPairs"] * 0.95):
+        raise RuntimeError("Too many DTEK street errors to publish even a partial snapshot")
     from merge_buildings import encrypt
     password = os.environ.get("VISICOM_EXPORT_PASSWORD")
     if not password:
         raise RuntimeError("Missing VISICOM_EXPORT_PASSWORD")
     Path(args.output).write_text(json.dumps(encrypt(payload, password), ensure_ascii=False), encoding="utf-8")
-    print(f"Encrypted {len(payload['addresses'])} DTEK house records; statuses are raw/unclassified", flush=True)
+    print(f"Encrypted {len(payload['addresses'])} DTEK house records; complete={payload['complete']}; errors={len(payload['errors'])}; statuses raw", flush=True)
 
 
 if __name__ == "__main__":
