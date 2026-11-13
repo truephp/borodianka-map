@@ -156,6 +156,10 @@ async def main_async(directory, output, update_fact, delay_seconds, all_streets=
             if isinstance(schedule_fact, dict) and isinstance(schedule_fact.get("data"), dict):
                 print(f"DTEK fact captured: {len(schedule_fact['data'])} days, updated {schedule_fact.get('update')}", file=sys.stderr)
             result["scheduleFact"] = schedule_fact
+            # Persist the public GPV fact before requesting house statuses. If the
+            # address API subsequently fails, the same capture can still refresh
+            # the independent public schedule publication step.
+            Path(output).write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             fact = metadata["updateFact"] or update_fact
             if not fact:
                 raise RuntimeError("Missing updateFact: provide current DTEK value using --update-fact")
