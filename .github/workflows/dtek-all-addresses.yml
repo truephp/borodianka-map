@@ -22,8 +22,8 @@ on:
     types: [completed]
     branches: [main]
   schedule:
-    # Every hour at minute 17 UTC; avoid GitHub Actions top-of-hour congestion.
-    - cron: '17 * * * *'
+    # GPV fact + house statuses in one DTEK browser session every 15 minutes.
+    - cron: '7,22,37,52 * * * *'
 
 permissions:
   contents: read
@@ -78,13 +78,41 @@ jobs:
           if errors:
               print("::warning::Partial DTEK capture: "+", ".join(f"{x['city']} / {x['street']}" for x in errors))
           PY
-      - name: Normalize schedule from the same DTEK fact capture
+      - name: Normalize GPV fact independently of house API results
         id: gpvschedule
-        if: steps.dtek.outcome == 'success'
+        if: always()
+        continue-on-error: true
         run: |
+          test -s "$RUNNER_TEMP/dtek-borodianka-all-houses.json"
           python scripts/fetch_dtek_gpv_schedule.py \
             --input "$RUNNER_TEMP/dtek-borodianka-all-houses.json" \
             --output "$RUNNER_TEMP/dtek-gpv-schedule.json"
+      - name: Upload unencrypted public GPV schedule artifact
+        if: steps.gpvschedule.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dtek-gpv-public
+          path: ${{ runner.temp }}/dtek-gpv-schedule.json
+          retention-days: 7
+          if-no-files-found: error
+      - name: Publish unencrypted GPV schedule to R2
+        if: steps.gpvschedule.outcome == 'success'
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          set -euo pipefail
+          test -s "$RUNNER_TEMP/dtek-gpv-schedule.json"
+          test -n "$R2_ACCOUNT_ID" && test -n "$R2_BUCKET"
+          test -n "$AWS_ACCESS_KEY_ID" && test -n "$AWS_SECRET_ACCESS_KEY"
+          aws s3 cp "$RUNNER_TEMP/dtek-gpv-schedule.json" \
+            "s3://${R2_BUCKET}/borodianka/data/dtek-gpv-schedule.json" \
+            --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
+            --no-progress --content-type application/json \
+            --cache-control 'public, max-age=300'
       - name: Build encrypted DTEK house-status snapshot
         id: status-snapshot
         if: steps.dtek.outcome == 'success'
