@@ -1,0 +1,23 @@
+[Unit]
+Description=DTEK Borodianka public JSON collector
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=dtek
+Group=dtek
+WorkingDirectory=/opt/dtek-collector
+Environment=HOME=/var/lib/dtek-collector
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/flock -n /run/lock/dtek-collector.lock /opt/dtek-collector/.venv/bin/python /opt/dtek-collector/scripts/run_dtek_vps.py --output-dir /var/www/dtek/v1/borodianka --workers 2 --delay-seconds 1.5 --timeout 600
+TimeoutStartSec=660
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/www/dtek/v1/borodianka /var/lib/dtek-collector /run/lock
+UMask=0022
+
+[Install]
+WantedBy=multi-user.target
