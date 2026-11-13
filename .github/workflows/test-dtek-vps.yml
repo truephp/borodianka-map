@@ -1,0 +1,37 @@
+name: Test VPS DTEK collector
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/test-dtek-vps.yml'
+      - 'scripts/run_dtek_vps.py'
+      - 'scripts/test_dtek_vps.py'
+      - 'scripts/fetch_dtek_gpv_schedule.py'
+      - 'scripts/build_dtek_status_snapshot.py'
+      - 'deploy/vps/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check collector syntax
+        run: python -m py_compile scripts/run_dtek_vps.py scripts/test_dtek_vps.py
+      - name: Verify independent atomic JSON publishing
+        run: python -m unittest scripts.test_dtek_vps -v
+      - name: Validate systemd and Nginx example files
+        run: |
+          sudo systemd-analyze verify deploy/vps/dtek-collector.service deploy/vps/dtek-collector.timer
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq nginx
+          sudo cp deploy/vps/dtek.theredcat.top.nginx /etc/nginx/sites-enabled/dtek.theredcat.top
+          sudo nginx -t
