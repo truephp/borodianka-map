@@ -4,7 +4,7 @@ on:
     branches: [main]
   workflow_dispatch:
   workflow_run:
-    workflows: ["Import OSM data", "DTEK KREM all Borodianka addresses vs buildings", "Update public DTEK GPV schedules"]
+    workflows: ["Import OSM data", "DTEK KREM all Borodianka addresses vs buildings"]
     types: [completed]
     branches: [main]
 permissions:
@@ -169,46 +169,6 @@ jobs:
           assert all(envelope.get(k) for k in ("salt", "iv", "data"))
           print("Encrypted DTEK review report included in GitHub Pages artifact")
           PY
-      - name: Find latest successful standalone public DTEK schedule
-        id: public-schedule
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const {owner,repo} = context.repo;
-            const runs = await github.rest.actions.listWorkflowRuns({
-              owner,repo,workflow_id:'dtek-public-schedule.yml',status:'success',per_page:20
-            });
-            for(const run of runs.data.workflow_runs){
-              if(run.head_branch!=='main')continue;
-              const result = await github.rest.actions.listWorkflowRunArtifacts({
-                owner,repo,run_id:run.id,per_page:100
-              });
-              if(result.data.artifacts.some(a=>a.name==='dtek-gpv-public'&&!a.expired)){
-                core.setOutput('run-id',String(run.id));
-                break;
-              }
-            }
-      - name: Download standalone unencrypted public DTEK schedule
-        if: steps.public-schedule.outputs.run-id != ''
-        uses: actions/download-artifact@v4
-        with:
-          name: dtek-gpv-public
-          run-id: ${{ steps.public-schedule.outputs.run-id }}
-          github-token: ${{ github.token }}
-          path: ${{ runner.temp }}/dtek-public
-      - name: Install standalone public DTEK schedule
-        if: steps.public-schedule.outputs.run-id != ''
-        run: |
-          set -euo pipefail
-          python - "$RUNNER_TEMP/dtek-public/dtek-gpv-schedule.json" <<'PY'
-          import json,sys
-          from pathlib import Path
-          schedule=json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-          assert schedule.get("schemaVersion")==1
-          assert schedule.get("source")=="https://www.dtek-krem.com.ua/ua/shutdowns"
-          assert schedule.get("days")
-          PY
-          cp "$RUNNER_TEMP/dtek-public/dtek-gpv-schedule.json" data/dtek-gpv-schedule.json
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
