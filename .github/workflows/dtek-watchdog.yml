@@ -1,0 +1,68 @@
+name: Watch DTEK update freshness
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/dtek-watchdog.yml'
+      - 'scripts/dtek-watchdog.cjs'
+      - 'scripts/test_dtek_watchdog.cjs'
+  workflow_dispatch:
+  schedule:
+    # Redundant checks between the primary hourly schedules. GitHub cron
+    # can be delayed or omitted; only stale workflows are dispatched.
+    - cron: '13,28,43,58 * * * *'
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: dtek-watchdog
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test freshness decision policy
+        run: node scripts/test_dtek_watchdog.cjs
+      - name: Check recent successful updates and retry stale workflows
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const policy = require(process.env.GITHUB_WORKSPACE + '/scripts/dtek-watchdog.cjs');
+            const {owner, repo} = context.repo;
+            const now = Date.now();
+            const rows = [];
+            for (const target of policy.TARGETS) {
+              const response = await github.rest.actions.listWorkflowRuns({
+                owner, repo,
+                workflow_id: target.workflow,
+                branch: 'main',
+                per_page: 40
+              });
+              const decision = policy.inspectRuns(response.data.workflow_runs, now);
+              const ageLabel = Number.isFinite(decision.ageMinutes)
+                ? Math.round(decision.ageMinutes) + ' min' : 'never';
+              if (decision.action === 'dispatch') {
+                await github.rest.actions.createWorkflowDispatch({
+                  owner, repo, workflow_id: target.workflow, ref: 'main'
+                });
+                core.warning(target.name + ': last success ' + ageLabel +
+                  ' ago; recovery workflow dispatched.');
+              } else {
+                core.info(target.name + ': ' + decision.action +
+                  ' (last successful update ' + ageLabel + ' ago)');
+              }
+              rows.push('| ' + target.name + ' | ' + ageLabel + ' | ' +
+                decision.action + ' |');
+            }
+            await core.summary.addHeading('DTEK update freshness')
+              .addTable([
+                [{data:'Workflow',header:true},{data:'Age of last success',header:true},{data:'Action',header:true}],
+                ...rows.map(row => row.slice(2,-2).split(' | ').map(data=>({data})))
+              ]).write();
