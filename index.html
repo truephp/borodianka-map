@@ -1080,9 +1080,18 @@ async function loadDtekSchedule(){
   const json=await response.json();
   if(json.schemaVersion!==1||json.region!=='kyiv-region'||!json.days)throw Error('невідомий формат графіка');
   dtekScheduleData=json;
-  dtekForecastStatus.textContent='Графік ДТЕК: '+Object.keys(json.days).join(', ')+
-   ' · джерело оновлено '+(json.dtekPublishedAt||json.sourceUpdatedAt)+
-   ' · показано прогноз, не фактичну напругу';
+  const checked=new Date(json.sourceUpdatedAt||json.fetchedAt);
+  const checkedAt=Number.isFinite(checked.getTime())
+   ? new Intl.DateTimeFormat('uk-UA',{timeZone:'Europe/Kyiv',day:'2-digit',
+      month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}).format(checked)
+   : 'час перевірки невідомий';
+  const age=Date.now()-checked.getTime();
+  const freshness=Number.isFinite(age)&&age>3*3600000
+   ? ' · ⚠ остання перевірка понад 3 години тому' : '';
+  dtekForecastStatus.textContent='Графік на '+Object.keys(json.days).join(', ')+
+   ' · ДТЕК опублікував: '+(json.dtekPublishedAt||'невідомо')+
+   ' · нами перевірено: '+checkedAt+freshness+
+   ' · прогноз, не фактична напруга';
  }catch(error){
   dtekScheduleData=null;
   dtekForecastStatus.textContent='Графік недоступний: '+error.message+'. Прогноз невідомий.';
