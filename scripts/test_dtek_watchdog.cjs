@@ -6,9 +6,10 @@ const run=(status,conclusion,minutes,id=1)=>({
   created_at:new Date(now-minutes*60000).toISOString(),
   updated_at:new Date(now-(minutes-1)*60000).toISOString()
 });
-assert.equal(TARGETS.length,2);
-assert.equal(inspectRuns([run('completed','success',60)],now).action,'fresh');
-assert.equal(inspectRuns([run('completed','success',75)],now).action,'dispatch');
+assert.equal(TARGETS.length,1);
+assert.equal(TARGETS[0].workflow,'dtek-all-addresses.yml');
+assert.equal(inspectRuns([run('completed','success',30)],now).action,'fresh');
+assert.equal(inspectRuns([run('completed','success',45)],now).action,'dispatch');
 assert.equal(inspectRuns([
   run('in_progress',null,6,2),run('completed','success',150,1)
 ],now).action,'running');
