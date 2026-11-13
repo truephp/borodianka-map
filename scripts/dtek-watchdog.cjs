@@ -2,11 +2,10 @@
 'use strict';
 
 const TARGETS = Object.freeze([
-  { workflow: 'dtek-public-schedule.yml', name: 'Public GPV fact schedules' },
-  { workflow: 'dtek-all-addresses.yml', name: 'House outage statuses and address matching' },
+  { workflow: 'dtek-all-addresses.yml', name: 'GPV fact + house statuses (single capture)' },
 ]);
-const MAX_AGE_MINUTES = 65;
-const ACTIVE_GRACE_MINUTES = 30;
+const MAX_AGE_MINUTES = 35;
+const ACTIVE_GRACE_MINUTES = 20;
 const RETRY_COOLDOWN_MINUTES = 15;
 
 function inspectRuns(runs, nowMs = Date.now()) {
