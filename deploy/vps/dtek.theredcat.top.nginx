@@ -1,0 +1,31 @@
+# HTTP-only bootstrap: Certbot will add HTTPS and redirect after DNS is ready.
+# Do not overwrite existing sites or the global /etc/nginx/nginx.conf.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name dtek.theredcat.top;
+
+    root /var/www/dtek;
+    autoindex off;
+
+    # Data is deliberately public and reusable by map frontends.
+    location ~ ^/v1/borodianka/(?:schedule|houses)\.json$ {
+        default_type application/json;
+        add_header Access-Control-Allow-Origin "*" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Cache-Control "public, max-age=60" always;
+        try_files $uri =404;
+    }
+
+    location = /v1/borodianka/status.json {
+        default_type application/json;
+        add_header Access-Control-Allow-Origin "*" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Cache-Control "no-store" always;
+        try_files $uri =404;
+    }
+
+    location / {
+        return 404;
+    }
+}
