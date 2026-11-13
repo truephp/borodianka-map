@@ -220,5 +220,26 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: .
-      - id: deployment
+      - id: deploy-first
         uses: actions/deploy-pages@v4
+        continue-on-error: true
+      - name: Retry temporary GitHub Pages artifact-metadata failure
+        if: steps.deploy-first.outcome == 'failure'
+        run: sleep 20
+      - id: deploy-retry
+        if: steps.deploy-first.outcome == 'failure'
+        uses: actions/deploy-pages@v4
+      - id: deployment
+        if: steps.deploy-first.outcome == 'success' || steps.deploy-retry.outcome == 'success'
+        env:
+          FIRST_URL: ${{ steps.deploy-first.outputs.page_url }}
+          RETRY_URL: ${{ steps.deploy-retry.outputs.page_url }}
+        run: |
+          echo "page_url=${RETRY_URL:-$FIRST_URL}" >> "$GITHUB_OUTPUT"
+      - name: Ensure GitHub Pages was actually published
+        if: always()
+        env:
+          FIRST_RESULT: ${{ steps.deploy-first.outcome }}
+          RETRY_RESULT: ${{ steps.deploy-retry.outcome }}
+        run: |
+          test "$FIRST_RESULT" = success || test "$RETRY_RESULT" = success
