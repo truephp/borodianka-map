@@ -9,9 +9,9 @@ on:
       - 'scripts/test_dtek_watchdog.cjs'
   workflow_dispatch:
   schedule:
-    # Redundant checks between the primary hourly schedules. GitHub cron
-    # can be delayed or omitted; only stale workflows are dispatched.
-    - cron: '13,28,43,58 * * * *'
+    # Check seven minutes after each 15-minute unified collector slot.
+    # GitHub cron is best effort; recover only genuinely stale runs.
+    - cron: '14,29,44,59 * * * *'
 
 permissions:
   contents: read
