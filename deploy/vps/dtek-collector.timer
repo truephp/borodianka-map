@@ -1,0 +1,11 @@
+[Unit]
+Description=Collect DTEK public schedules and house status every 15 minutes
+
+[Timer]
+OnCalendar=*-*-* *:00/15:00
+Persistent=true
+AccuracySec=30s
+Unit=dtek-collector.service
+
+[Install]
+WantedBy=timers.target
