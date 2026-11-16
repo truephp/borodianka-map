@@ -27,6 +27,7 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 concurrency:
   group: dtek-all-addresses
@@ -223,6 +224,7 @@ jobs:
           print("\nVisicom details stay encrypted. Street-house candidates require manual review.")
           PY
       - name: Upload source house keys, public OSM result and encrypted Visicom report
+        id: matching-artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -245,3 +247,15 @@ jobs:
           test "${{ steps.visicom.outcome }}" = success
           test "${{ steps.status-snapshot.outcome }}" = success
           test "${{ steps.gpvschedule.outcome }}" = success
+
+      - name: Always dispatch a Pages refresh after publishing capture artifacts
+        if: ${{ always() && (steps.matching-artifact.outcome == 'success' || steps.gpvschedule.outcome == 'success') }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            await github.rest.actions.createWorkflowDispatch({
+              owner, repo, workflow_id: 'deploy.yml', ref: 'main',
+              inputs: { dtek_run_id: String(context.runId) }
+            });
+            core.info('Triggered Pages refresh for DTEK run '+context.runId);
