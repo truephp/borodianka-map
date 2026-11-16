@@ -3,6 +3,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      dtek_run_id:
+        description: 'DTEK capture run ID for explicit artifact-based publication'
+        required: false
+        type: string
   workflow_run:
     workflows: ["Import OSM data", "DTEK KREM all Borodianka addresses vs buildings"]
     types: [completed]
@@ -103,6 +108,33 @@ jobs:
         with:
           script: |
             const { owner, repo } = context.repo;
+            const explicitRunId = context.eventName === 'workflow_dispatch'
+              ? String(context.payload.inputs?.dtek_run_id || '') : '';
+            if (explicitRunId) {
+              if (!/^\\d+$/.test(explicitRunId)) {
+                core.setFailed('Invalid DTEK run ID');
+                return;
+              }
+              const selected = await github.rest.actions.getWorkflowRun({
+                owner, repo, run_id: Number(explicitRunId)
+              });
+              if (selected.data.name !== 'DTEK KREM all Borodianka addresses vs buildings' ||
+                  selected.data.head_branch !== 'main') {
+                core.setFailed('Explicit run does not belong to the main DTEK collector');
+                return;
+              }
+              const selectedArtifacts = await github.rest.actions.listWorkflowRunArtifacts({
+                owner, repo, run_id: Number(explicitRunId), per_page: 100
+              });
+              if (selectedArtifacts.data.artifacts.some(a =>
+                a.name === 'dtek-borodianka-full-address-audit' && !a.expired &&
+                selected.data.status === 'completed' && selected.data.conclusion === 'success')) {
+                core.setOutput('run-id', explicitRunId);
+                core.info('Using directly dispatched DTEK capture '+explicitRunId);
+                return;
+              }
+              core.info('No fully successful DTEK matching artifact; use previous good report');
+            }
             const workflowId = 'dtek-all-addresses.yml';
             const response = await github.rest.actions.listWorkflowRuns({
               owner, repo, workflow_id: workflowId, status: 'success', per_page: 20
@@ -175,6 +207,18 @@ jobs:
         with:
           script: |
             const {owner,repo} = context.repo;
+            const explicitRunId = context.eventName === 'workflow_dispatch'
+              ? String(context.payload.inputs?.dtek_run_id || '') : '';
+            if (explicitRunId && /^\\d+$/.test(explicitRunId)) {
+              const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+                owner,repo,run_id:Number(explicitRunId),per_page:100
+              });
+              if(artifacts.data.artifacts.some(a=>a.name==='dtek-gpv-public'&&!a.expired)) {
+                core.setOutput('run-id',explicitRunId);
+                core.info('Using GPV artifact from capture '+explicitRunId);
+                return;
+              }
+            }
             const runs = await github.rest.actions.listWorkflowRuns({
               owner,repo,workflow_id:'dtek-all-addresses.yml',
               branch:'main',per_page:30
