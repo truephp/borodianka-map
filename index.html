@@ -1074,9 +1074,10 @@ resetDtekForecastTime();
 dtekForecastTime.addEventListener('input',()=>{if(dtekOutageMode.checked)dtekPresenceDraw();});
 dtekForecastNow.addEventListener('click',resetDtekForecastTime);
 const dtekR2BaseInput=document.getElementById('dtekR2BaseUrl');
+let dtekConfiguredBase='';
 try{dtekR2BaseInput.value=localStorage.getItem('borodianka-dtek-r2-base-url')||'';}catch{}
 function dtekR2Base(){
- let input=dtekR2BaseInput.value.trim();
+ let input=dtekR2BaseInput.value.trim()||dtekConfiguredBase;
  if(!input){
   try{
    const buildingUrl=getUnifiedBuildingsR2Url();
@@ -1131,6 +1132,17 @@ async function loadDtekSchedule(){
  if(dtekOutageMode.checked)dtekPresenceDraw();
 }
 loadDtekSchedule();
+fetch('./data/dtek-r2-config.json',{cache:'no-store'})
+ .then(r=>r.ok?r.json():null)
+ .then(config=>{
+  if(!config?.baseUrl)return;
+  dtekConfiguredBase=config.baseUrl;
+  if(!dtekR2BaseInput.value.trim()){
+   dtekR2BaseInput.placeholder=dtekConfiguredBase;
+   loadDtekSchedule();
+   if(!dtekReviewEnvelope && !dtekReviewDecisions.size)dtekReviewAutoLoad();
+  }
+ }).catch(err=>console.warn('Optional DTEK R2 configuration unavailable',err));
 const dtekOutageLegend=document.getElementById('dtekOutageLegend');
 const dtekPresenceStatus=document.getElementById('dtekPresenceStatus');
 let dtekPresenceRecords=[],dtekSourceFetchedAt=null,dtekSourceErrors=[];
