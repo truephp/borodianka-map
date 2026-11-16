@@ -263,6 +263,26 @@ jobs:
           PY
           cp "$RUNNER_TEMP/dtek-public/dtek-gpv-schedule.json" data/dtek-gpv-schedule.json
           echo "Installed latest GPV independent of house API outcome"
+      - name: Configure public R2 DTEK endpoint for all map visitors
+        env:
+          DTEK_R2_BASE_URL: ${{ vars.DTEK_R2_BASE_URL }}
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          from urllib.parse import urlparse
+          url=os.environ.get('DTEK_R2_BASE_URL','').rstrip('/')
+          if url:
+              parsed=urlparse(url)
+              assert parsed.scheme=='https' and parsed.netloc
+              assert parsed.path.endswith('/borodianka/data')
+              Path('data/dtek-r2-config.json').write_text(
+                  json.dumps({'baseUrl':url})+'\n',encoding='utf-8')
+              print('DTEK will use public R2 JSON endpoint')
+          else:
+              Path('data/dtek-r2-config.json').unlink(missing_ok=True)
+              print('::warning::Set repository variable DTEK_R2_BASE_URL to enable R2 data by default')
+          PY
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
