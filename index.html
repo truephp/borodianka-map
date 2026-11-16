@@ -75,7 +75,7 @@
   </label>
   <div id="dtekReviewDecisionStatus" class="small dtek-status">Рішення зберігаються лише в пам'яті вкладки до експорту.</div>
  </div>
-</div><label>Картографічна підкладка <select id="basemap" style="width:100%;padding:8px;background:#263b56;color:#fff;border:1px solid #48617f;border-radius:8px"><option value="osm">OpenStreetMap</option><option value="visicom">Visicom</option><option value="local">Локальна OSM (Cloudflare R2)</option></select></label><label>R2: публічна адреса набору тайлів <input id="localTilesUrl" type="url" placeholder="https://tiles.example.com/borodianka/v1" style="width:100%;padding:8px;background:#263b56;color:#fff;border:1px solid #48617f;border-radius:8px"><span class="small">Вкажи URL каталогу версії, без /{z}/{x}/{y}.webp. Збережеться лише у твоєму браузері.</span></label><label><input type="checkbox" id="compareFootprints"> Порівнювати контури OSM з підкладкою Visicom</label><p class="small" id="visicomStatus">Visicom Tiles: доступ залежить від авторизації/домену. Підкладка не надає інтерактивні полігони будівель.</p><label><input type="checkbox" id="addressMode"> Діагностика адрес OSM (зелений / жовтий / рожевий)</label><div id="addressStats" class="small"></div><label><input type="checkbox" id="showAddressPoints"> Показати окремі адресні точки OSM</label><div id="pointStats" class="small">Адресні точки: очікується імпорт.</div><label><input type="checkbox" id="showBuildings" checked> Показувати полігони OSM (блакитні)</label><label><input type="checkbox" id="showHouseNumbers" checked> Показувати номери будинків (zoom 16+)</label><label><input type="checkbox" id="showMask" checked> Ізолювати Бородянку (+120 м за контуром)</label>
+</div><label>Публічний URL R2 для ДТЕК <input id="dtekR2BaseUrl" type="url" placeholder="https://YOUR-R2-DOMAIN/borodianka/data" style="width:100%;padding:8px;background:#263b56;color:#fff;border:1px solid #48617f"><span class="small">Один раз вкажи публічний HTTPS-каталог R2. ГПВ і зашифрований звіт оновлюються без деплою карти. Без URL використовується резервна копія GitHub Pages.</span></label><label>Картографічна підкладка <select id="basemap" style="width:100%;padding:8px;background:#263b56;color:#fff;border:1px solid #48617f;border-radius:8px"><option value="osm">OpenStreetMap</option><option value="visicom">Visicom</option><option value="local">Локальна OSM (Cloudflare R2)</option></select></label><label>R2: публічна адреса набору тайлів <input id="localTilesUrl" type="url" placeholder="https://tiles.example.com/borodianka/v1" style="width:100%;padding:8px;background:#263b56;color:#fff;border:1px solid #48617f;border-radius:8px"><span class="small">Вкажи URL каталогу версії, без /{z}/{x}/{y}.webp. Збережеться лише у твоєму браузері.</span></label><label><input type="checkbox" id="compareFootprints"> Порівнювати контури OSM з підкладкою Visicom</label><p class="small" id="visicomStatus">Visicom Tiles: доступ залежить від авторизації/домену. Підкладка не надає інтерактивні полігони будівель.</p><label><input type="checkbox" id="addressMode"> Діагностика адрес OSM (зелений / жовтий / рожевий)</label><div id="addressStats" class="small"></div><label><input type="checkbox" id="showAddressPoints"> Показати окремі адресні точки OSM</label><div id="pointStats" class="small">Адресні точки: очікується імпорт.</div><label><input type="checkbox" id="showBuildings" checked> Показувати полігони OSM (блакитні)</label><label><input type="checkbox" id="showHouseNumbers" checked> Показувати номери будинків (zoom 16+)</label><label><input type="checkbox" id="showMask" checked> Ізолювати Бородянку (+120 м за контуром)</label>
 <div class="legend"><span><i class="swatch" style="background:#ffcc20"></i>Демо: є світло</span><span><i class="swatch" style="background:#3366bf"></i>Демо: планове</span><span><i class="swatch" style="background:#a13d43"></i>Демо: аварійне</span></div>
 <label><input type="checkbox" id="showStreetColors"> Демонстраційне фарбування вулиць</label><label>Товщина: <output id="widthOut">3</output> px <input id="width" type="range" min="1" max="7" step=".5" value="3"></label>
 <label>Відступ: <output id="offsetOut">5</output> px <input id="offset" type="range" min="2" max="12" step="1" value="5"></label>
@@ -1073,9 +1073,41 @@ function resetDtekForecastTime(){
 resetDtekForecastTime();
 dtekForecastTime.addEventListener('input',()=>{if(dtekOutageMode.checked)dtekPresenceDraw();});
 dtekForecastNow.addEventListener('click',resetDtekForecastTime);
+const dtekR2BaseInput=document.getElementById('dtekR2BaseUrl');
+try{dtekR2BaseInput.value=localStorage.getItem('borodianka-dtek-r2-base-url')||'';}catch{}
+function dtekR2Base(){
+ let input=dtekR2BaseInput.value.trim();
+ if(!input){
+  try{
+   const buildingUrl=getUnifiedBuildingsR2Url();
+   if(buildingUrl)input=buildingUrl.replace(/\/borodianka\/data\/[^/]+$/, '/borodianka/data');
+  }catch{}
+ }
+ if(!input){
+  const tileRoot=localTilesUrl.value.trim();
+  try{
+   const url=new URL(tileRoot);
+   if(url.pathname.includes('/borodianka/'))input=url.origin+'/borodianka/data';
+  }catch{}
+ }
+ if(!input)return null;
+ const url=new URL(input);
+ if(url.protocol!=='https:'||!url.pathname.replace(/\/$/,'').endsWith('/borodianka/data'))
+  throw Error('Вкажи публічний HTTPS URL каталогу /borodianka/data у R2');
+ return url.href.replace(/\/$/,'');
+}
+function dtekDynamicUrl(name){
+ const base=dtekR2Base();
+ return base?base+'/'+name:'./data/'+name;
+}
+dtekR2BaseInput.addEventListener('change',()=>{
+ try{localStorage.setItem('borodianka-dtek-r2-base-url',dtekR2BaseInput.value.trim());}catch{}
+ loadDtekSchedule();
+ if(!dtekReviewDecisions.size){dtekReviewEnvelope=null;dtekReviewAutoLoad();}
+});
 async function loadDtekSchedule(){
  try{
-  const response=await fetch('./data/dtek-gpv-schedule.json',{cache:'no-store'});
+  const response=await fetch(dtekDynamicUrl('dtek-gpv-schedule.json'),{cache:'no-store'});
   if(!response.ok)throw Error('HTTP '+response.status);
   const json=await response.json();
   if(json.schemaVersion!==1||json.region!=='kyiv-region'||!json.days)throw Error('невідомий формат графіка');
@@ -1464,7 +1496,7 @@ async function dtekReviewAutoLoad(){
  try{
   if(!dtekReviewEnvelope){
    dtekReviewStatus.textContent='Завантаження звіту ДТЕК із сайту…';
-   const res=await fetch('./data/dtek-all-unified-matches.enc.json',{cache:'no-cache'});
+   const res=await fetch(dtekDynamicUrl('dtek-all-unified-matches.enc.json'),{cache:'no-store'});
    if(!res.ok)throw Error('HTTP '+res.status+' під час завантаження звіту');
    dtekReviewEnvelope=await res.json();
   }
@@ -1485,6 +1517,16 @@ dtekReviewFile.addEventListener('change',async e=>{
 });
 visicomPasswordInput.addEventListener('change',()=>{if(!dtekReviewRecords.length)dtekReviewAutoLoad();});
 dtekReviewAutoLoad();
+// Refresh dynamic R2 JSON while the map stays open. Never drop unsaved manual links.
+setInterval(()=>{
+ loadDtekSchedule();
+ if(dtekR2BaseInput.value.trim() || localTilesUrl.value.trim() || unifiedBuildingsUrlInput.value.trim()){
+  if(!dtekReviewDecisions.size && !dtekReviewSelectedLinks.size){
+   dtekReviewEnvelope=null;
+   dtekReviewAutoLoad();
+  }
+ }
+},5*60*1000);
 dtekReviewEnable.addEventListener('change',dtekReviewDraw);
 dtekReviewAddress.addEventListener('change',()=>{
  dtekReviewSelected=dtekReviewAddress.value===''?-1:Number(dtekReviewAddress.value);
