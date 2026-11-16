@@ -27,7 +27,6 @@ on:
 
 permissions:
   contents: read
-  actions: write
 
 concurrency:
   group: dtek-all-addresses
@@ -200,6 +199,24 @@ jobs:
           set -e
           test "$code" -eq 0 -o "$code" -eq 2
           test -s "$RUNNER_TEMP/dtek-all-unified-matches.enc.json"
+      - name: Publish encrypted unified DTEK matching report to R2
+        if: steps.visicom.outcome == 'success' && steps.dtek.outcome == 'success'
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          set -euo pipefail
+          test -s "$RUNNER_TEMP/dtek-all-unified-matches.enc.json"
+          test -n "$R2_ACCOUNT_ID" && test -n "$R2_BUCKET"
+          test -n "$AWS_ACCESS_KEY_ID" && test -n "$AWS_SECRET_ACCESS_KEY"
+          aws s3 cp "$RUNNER_TEMP/dtek-all-unified-matches.enc.json" \
+            "s3://${R2_BUCKET}/borodianka/data/dtek-all-unified-matches.enc.json" \
+            --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
+            --no-progress --content-type application/json \
+            --cache-control 'no-store'
       - name: Summarize all streets
         if: always()
         run: |
@@ -247,15 +264,3 @@ jobs:
           test "${{ steps.visicom.outcome }}" = success
           test "${{ steps.status-snapshot.outcome }}" = success
           test "${{ steps.gpvschedule.outcome }}" = success
-
-      - name: Always dispatch a Pages refresh after publishing capture artifacts
-        if: ${{ always() && (steps.matching-artifact.outcome == 'success' || steps.gpvschedule.outcome == 'success') }}
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const { owner, repo } = context.repo;
-            await github.rest.actions.createWorkflowDispatch({
-              owner, repo, workflow_id: 'deploy.yml', ref: 'main',
-              inputs: { dtek_run_id: String(context.runId) }
-            });
-            core.info('Triggered Pages refresh for DTEK run '+context.runId);
