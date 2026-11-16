@@ -55,6 +55,8 @@ jobs:
         run: node scripts/test_dtek_unaddressed_gray.mjs
       - name: Verify stale DTEK reports cannot claim current power state
         run: node scripts/test_dtek_stale_reports.mjs
+      - name: Verify R2-hosted DTEK JSON selection and fallback
+        run: node scripts/test_dtek_r2_source.mjs
       - name: Verify centralized Feature patch rendering
         run: node scripts/test_feature_patch_view.mjs
       - name: Validate inline map JavaScript syntax before deployment
