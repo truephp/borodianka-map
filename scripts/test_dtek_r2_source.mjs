@@ -11,7 +11,7 @@ const fields={
 };
 const document={getElementById(id){return fields[id]}};
 fields.dtekR2BaseUrl.addEventListener=()=>{};
-const sandbox={document,localStorage,URL,console,loadDtekSchedule(){},dtekReviewAutoLoad(){},getUnifiedBuildingsR2Url(){return null;}};
+const sandbox={document,localStorage,URL,console,localTilesUrl:fields.localTilesUrl,loadDtekSchedule(){},dtekReviewAutoLoad(){},getUnifiedBuildingsR2Url(){return null;}};
 vm.createContext(sandbox);
 vm.runInContext(html.slice(start,end)+"\nthis.dynamic=dtekDynamicUrl;this.base=dtekR2Base",sandbox);
 assert.equal(sandbox.dynamic('dtek-gpv-schedule.json'),'./data/dtek-gpv-schedule.json');
