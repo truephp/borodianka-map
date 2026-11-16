@@ -127,8 +127,7 @@ jobs:
                 owner, repo, run_id: Number(explicitRunId), per_page: 100
               });
               if (selectedArtifacts.data.artifacts.some(a =>
-                a.name === 'dtek-borodianka-full-address-audit' && !a.expired &&
-                selected.data.status === 'completed' && selected.data.conclusion === 'success')) {
+                a.name === 'dtek-borodianka-full-address-audit' && !a.expired)) {
                 core.setOutput('run-id', explicitRunId);
                 core.info('Using directly dispatched DTEK capture '+explicitRunId);
                 return;
