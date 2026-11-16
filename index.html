@@ -1140,7 +1140,10 @@ fetch('./data/dtek-r2-config.json',{cache:'no-store'})
   if(!dtekR2BaseInput.value.trim()){
    dtekR2BaseInput.placeholder=dtekConfiguredBase;
    loadDtekSchedule();
-   if(!dtekReviewEnvelope && !dtekReviewDecisions.size)dtekReviewAutoLoad();
+   if(!dtekReviewDecisions.size && !dtekReviewSelectedLinks.size){
+    dtekReviewEnvelope=null;
+    dtekReviewAutoLoad();
+   }
   }
  }).catch(err=>console.warn('Optional DTEK R2 configuration unavailable',err));
 const dtekOutageLegend=document.getElementById('dtekOutageLegend');
